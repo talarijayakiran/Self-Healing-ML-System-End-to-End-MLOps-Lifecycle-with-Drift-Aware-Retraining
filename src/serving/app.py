@@ -22,12 +22,23 @@ from src.monitoring.prediction_logger import log_prediction
 # MODEL LOADING (FILE SYSTEM ONLY – CONTAINER SAFE)
 # =====================================================
 MODEL_PATH = os.getenv("MODEL_PATH", "exported_model")
+TEST_MODE = os.getenv("TEST_MODE", "false").lower() == "true"
 
-if not os.path.exists(MODEL_PATH):
-    raise RuntimeError(f"Model directory not found at {MODEL_PATH}")
+model = None
 
-model = mlflow.pyfunc.load_model(MODEL_PATH)
+def load_model():
+    global model
+    if model is not None:
+        return model
 
+    if TEST_MODE:
+        return None  # Skip model loading in CI/tests
+
+    if not os.path.exists(MODEL_PATH):
+        raise RuntimeError(f"Model directory not found at {MODEL_PATH}")
+
+    model = mlflow.pyfunc.load_model(MODEL_PATH)
+    return model
 # =====================================================
 # FEATURE TEMPLATE (ORDER LOCK)
 # =====================================================
@@ -110,8 +121,13 @@ def predict(input_data: PredictionInput):
         final_df = build_feature_vector(input_data)
 
         pred_start = time.time()
-        prediction = model.predict(final_df)[0]
-        PREDICTION_LATENCY.observe(time.time() - pred_start)
+        loaded_model = load_model()
+
+        if loaded_model is None:
+            raise RuntimeError("Model not loaded (TEST_MODE)")
+
+        prediction = loaded_model.predict(final_df)[0]
+            PREDICTION_LATENCY.observe(time.time() - pred_start)
 
         log_prediction(
             features=input_data.dict(),
