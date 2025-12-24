@@ -119,41 +119,33 @@ def predict(input_data: PredictionInput):
 
     try:
         final_df = build_feature_vector(input_data)
-
-        pred_start = time.time()
-        loaded_model = load_model()
-
-        if loaded_model is None:
-            raise RuntimeError("Model not loaded (TEST_MODE)")
-
-        prediction = loaded_model.predict(final_df)[0]
-            PREDICTION_LATENCY.observe(time.time() - pred_start)
+        prediction = model.predict(final_df)[0]
 
         log_prediction(
             features=input_data.dict(),
-            prediction=float(prediction),
+            prediction=float(prediction)
         )
 
         return {
             "predicted_sales": round(float(prediction), 2)
         }
 
-    except Exception as e:
+    except Exception:
         status_code = 500
-        raise e
+        raise
 
     finally:
+        latency = time.time() - start_time
+
         REQUEST_LATENCY.labels(
             endpoint="/predict"
-        ).observe(time.time() - start_time)
+        ).observe(latency)
 
         REQUEST_COUNT.labels(
             method="POST",
             endpoint="/predict",
-            http_status=status_code,
-        ).inc()
-
-# =====================================================
+            http_status=status_code
+        ).inc()# =====================================================
 # PROMETHEUS METRICS ENDPOINT
 # =====================================================
 @app.get("/metrics")
