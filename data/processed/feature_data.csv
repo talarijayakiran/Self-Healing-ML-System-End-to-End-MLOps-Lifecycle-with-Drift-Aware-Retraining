@@ -1,0 +1,8 @@
+date,store_id,product_id,category,price,promo,region,day,month,is_weekend,units_sold
+2024-01-01,1,101,Electronics,1200,0,South,1,1,0,8
+2024-01-01,1,102,Clothing,40,1,South,1,1,0,20
+2024-01-02,1,101,Electronics,1200,0,South,2,1,0,6
+2024-01-02,2,103,Grocery,10,1,North,2,1,0,50
+2024-01-03,2,101,Electronics,1150,1,North,3,1,0,9
+2024-01-03,3,104,Furniture,500,0,East,3,1,0,2
+2024-01-04,3,102,Clothing,35,1,East,4,1,0,25

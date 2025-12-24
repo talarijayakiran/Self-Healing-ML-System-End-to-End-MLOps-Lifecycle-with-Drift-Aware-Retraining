@@ -1,0 +1,11 @@
+venv/
+__pycache__/
+*.pyc
+.mlflow/
+mlruns/
+data/monitoring/
+exported_model/
+.env
+.DS_Store
+.idea/
+.vscode/

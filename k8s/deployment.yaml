@@ -1,0 +1,20 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: retail-mlops-api
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: retail-mlops-api
+  template:
+    metadata:
+      labels:
+        app: retail-mlops-api
+    spec:
+      containers:
+        - name: api
+          image: retail-mlops-api:latest
+          imagePullPolicy: IfNotPresent
+          ports:
+            - containerPort: 8000
