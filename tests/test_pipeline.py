@@ -24,9 +24,6 @@ def test_feature_builder():
 def test_model_loaded():
     assert model is not None
 
-def test_intentional_failure():
-    assert False
-
 
 def test_model_prediction():
     sample = PredictionInput(
