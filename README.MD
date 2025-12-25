@@ -19,12 +19,12 @@ Most ML projects stop at:
 
 This system goes **much further**:
 
-✔ Runs continuously on cloud infrastructure
-✔ Detects data drift from real inference traffic
-✔ Automatically retrains when drift is confirmed
-✔ Registers new model versions without manual steps
-✔ Survives server reboot & container restart
-✔ Exposes full observability (metrics, latency, health)
+- Runs continuously on cloud infrastructure
+- Detects data drift from real inference traffic
+- Automatically retrains when drift is confirmed
+- Registers new model versions without manual steps
+- Survives server reboot & container restart
+- Exposes full observability (metrics, latency, health)
 
 This is how **real ML systems** work in production environments.
 
@@ -283,4 +283,5 @@ This system was built end-to-end with a **production mindset**:
 
 > *If it breaks at 3 AM, it’s not production.*
 > *If services are provide to users in 24/7 then only that system is production.*
+
 
