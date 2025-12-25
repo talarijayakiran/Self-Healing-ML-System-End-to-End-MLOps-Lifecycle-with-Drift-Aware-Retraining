@@ -1,26 +1,23 @@
-🔁 Self-Healing Machine Learning System
+#  Self-Healing Machine Learning System
 
-Drift-Aware, Auto-Retraining, Production-Grade MLOps Architecture
+### Drift-Aware, Auto-Retraining, Production-Grade MLOps Architecture
 
-> A continuously running ML system that monitors itself, detects data drift from live traffic, retrains automatically, and serves predictions without downtime.
+> **A continuously running ML system that monitors itself, detects data drift from live traffic, retrains automatically, and serves predictions without downtime.**
 
+This repository represents a **real-world ML production system**, not a demo or academic project.
+It is designed to stay alive **24/7**, recover from failures, and evolve as data changes.
 
+---
 
-This repository represents a real-world ML production system, not a demo or academic project.
-It is designed to stay alive 24/7, recover from failures, and evolve as data changes.
-
- What Makes This Project Different
+##  What Makes This Project Different
 
 Most ML projects stop at:
 
-Training a model once
+* Training a model once
+* Exposing a prediction API
+* Calling it “production”
 
-Exposing a prediction API
-
-Calling it “production”
-
-
-This system goes much further:
+This system goes **much further**:
 
 ✔ Runs continuously on cloud infrastructure
 ✔ Detects data drift from real inference traffic
@@ -29,13 +26,13 @@ This system goes much further:
 ✔ Survives server reboot & container restart
 ✔ Exposes full observability (metrics, latency, health)
 
-This is how real ML systems work in production environments.
-
+This is how **real ML systems** work in production environments.
 
 ---
 
- System Architecture (Conceptual)
+##  System Architecture (Conceptual)
 
+```
 ┌──────────────┐
 │   Client     │
 │ (REST Call)  │
@@ -75,66 +72,55 @@ This is how real ML systems work in production environments.
 │ Updated Model Artifact   │
 │ Used by Inference API    │
 └──────────────────────────┘
+```
 
+---
+
+##  Core Design Principles
+
+### 1️ Deterministic Inference
+
+* Feature order is locked using a template
+* No silent column mismatch
+* No runtime surprises
+
+### 2️ Drift-First Thinking
+
+* Drift is treated as a **first-class signal**
+* Model accuracy degradation is not ignored
+
+### 3️ Automation Over Manual Ops
+
+* Retraining does **not** require a human
+* Decisions are driven by data, not schedules
+
+### 4️ Observability by Default
+
+* Every request is measured
+* Every prediction is logged
+* Every failure is visible
 
 ---
 
-Core Design Principles
+##  Technology Stack (Why These Choices)
 
-1️⃣ Deterministic Inference
-
-Feature order is locked using a template
-
-No silent column mismatch
-
-No runtime surprises
-
-
-2️⃣ Drift-First Thinking
-
-Drift is treated as a first-class signal
-
-Model accuracy degradation is not ignored
-
-
-3️⃣ Automation Over Manual Ops
-
-Retraining does not require a human
-
-Decisions are driven by data, not schedules
-
-
-4️⃣ Observability by Default
-
-Every request is measured
-
-Every prediction is logged
-
-Every failure is visible
-
-
-
----
- Technology Stack (Why These Choices)
-
-Component	Tool	Reason
-
-API	FastAPI	Async, fast, production-ready
-Model Registry	MLflow	Versioning & lineage
-Deployment	Docker	Reproducibility
-Monitoring	Prometheus	Industry standard
-Dashboards	Grafana	Real-time observability
-Scheduling	Cron (EC2)	Simple & reliable
-Cloud	AWS EC2	Full control, low cost
-
+| Component      | Tool       | Reason                        |
+| -------------- | ---------- | ----------------------------- |
+| API            | FastAPI    | Async, fast, production-ready |
+| Model Registry | MLflow     | Versioning & lineage          |
+| Deployment     | Docker     | Reproducibility               |
+| Monitoring     | Prometheus | Industry standard             |
+| Dashboards     | Grafana    | Real-time observability       |
+| Scheduling     | Cron (EC2) | Simple & reliable             |
+| Cloud          | AWS EC2    | Full control, low cost        |
 
 No vendor lock-in. No magic services.
 
-
 ---
 
-📁 Repository Structure (Intentional, Not Random)
+## 📁 Repository Structure (Intentional, Not Random)
 
+```
 .
 ├── src/
 │   ├── serving/            # Inference API
@@ -151,43 +137,46 @@ No vendor lock-in. No magic services.
 ├── scripts/                # Automation scripts
 ├── monitoring/             # Prometheus configs
 └── README.md
+```
 
 Every directory exists for a reason.
 
-
 ---
 
- API Endpoints
+##  API Endpoints
 
-Health Check
+### Health Check
 
+```
 GET /health
+```
 
 Response:
 
+```json
 {
   "status": "ok",
   "model_loaded": true
 }
+```
 
 Used by:
 
-Load balancers
-
-Monitoring systems
-
-Deployment validation
-
-
+* Load balancers
+* Monitoring systems
+* Deployment validation
 
 ---
 
-Prediction Endpoint
+### Prediction Endpoint
 
+```
 POST /predict
+```
 
 Request:
 
+```json
 {
   "date": "2024-01-10",
   "category": "Electronics",
@@ -195,131 +184,103 @@ Request:
   "price": 1000,
   "promo": 1
 }
+```
 
 Response:
 
+```json
 {
   "predicted_sales": 34.92
 }
-
+```
 
 ---
 
-Metrics
+### Metrics
 
+```
 GET /metrics
+```
 
 Exposed for Prometheus scraping.
 
-
 ---
 
-Observability (Real, Not Fake)
+##  Observability (Real, Not Fake)
 
 Tracked metrics include:
 
-Request count by endpoint
-
-Request latency
-
-Prediction latency
-
-Error rates
-
+* Request count by endpoint
+* Request latency
+* Prediction latency
+* Error rates
 
 Grafana dashboards visualize:
 
-Traffic patterns
-
-System health
-
-Model behavior over time
-
-
+* Traffic patterns
+* System health
+* Model behavior over time
 
 ---
- Self-Healing Logic (Step-by-Step)
+
+##  Self-Healing Logic (Step-by-Step)
 
 1. API receives live traffic
-
-
 2. Predictions are logged
-
-
 3. Drift detection compares:
 
-Training distribution
-
-Live inference distribution
-
-
-
+   * Training distribution
+   * Live inference distribution
 4. Drift report is generated
-
-
 5. If drift exceeds threshold:
 
-Retraining pipeline is triggered
-
-
-
+   * Retraining pipeline is triggered
 6. New model is trained
-
-
 7. Model is registered in MLflow
-
-
 8. System continues serving predictions
-
-
 
 No downtime. No manual retraining.
 
-
 ---
 
- Reliability Proof
+## Reliability Proof
 
-✔ Survives EC2 reboot
-✔ Survives Docker restart
-✔ Model reloads correctly
-✔ API continues serving traffic
-✔ Retraining works post-deployment
+* Survives EC2 reboot
+* Survives Docker restart
+* Model reloads correctly
+* API continues serving traffic
+* Retraining works post-deployment
 
-This has been validated in a live cloud environment.
-
+This has been **validated in a live cloud environment**.
 
 ---
 
 This project demonstrates:
 
-Real MLOps thinking
+* Real MLOps thinking
+* Production debugging ability
+* Cloud deployment experience
+* Monitoring & observability
+* Automated ML lifecycle design
 
-Production debugging ability
+This is **how ML engineers work**, not how students code.
 
-Cloud deployment experience
+---
 
-Monitoring & observability
+##  Current Status
 
-Automated ML lifecycle design
+**Production-Ready**
+**24/7 Cloud Deployed**
+**Self-Healing Enabled**
 
-
-This is how ML engineers work, not how students code.
-
-
-
-Production-Ready
-24/7 Cloud Deployed
-Self-Healing Enabled
-
+---
 
 
-
-Author Note
+##  Author Note
 
 TALARI JAYAKIRAN
-This system was built end-to-end with a production mindset:
+This system was built end-to-end with a **production mindset**:
 
-> If it breaks at 3 AM, it’s not production.
-> When the services provided to users in 24/7 is production.
+> *If it breaks at 3 AM, it’s not production.*
+> *If services are provide to users in 24/7 then only that system is production.*
 
