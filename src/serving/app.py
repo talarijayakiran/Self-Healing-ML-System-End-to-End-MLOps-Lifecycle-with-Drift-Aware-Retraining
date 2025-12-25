@@ -1,7 +1,6 @@
-import time
 import os
+import time
 from datetime import datetime
-from pathlib import Path
 
 import pandas as pd
 import mlflow.pyfunc
@@ -19,42 +18,48 @@ from prometheus_client import (
 from src.monitoring.prediction_logger import log_prediction
 
 # =====================================================
-# MODEL LOADING (FILE SYSTEM ONLY – CONTAINER SAFE)
+# CONFIG
 # =====================================================
-MODEL_PATH = os.getenv("MODEL_PATH", "exported_model")
+MODEL_PATH = os.getenv("MODEL_PATH", "/app/model")
 TEST_MODE = os.getenv("TEST_MODE", "false").lower() == "true"
 
 model = None
 
+# =====================================================
+# LOAD MODEL (ONCE)
+# =====================================================
 def load_model():
     global model
     if model is not None:
         return model
 
     if TEST_MODE:
-        return None  # Skip model loading in CI/tests
+        print("TEST_MODE enabled — skipping model load")
+        return None
 
     if not os.path.exists(MODEL_PATH):
-        raise RuntimeError(f"Model directory not found at {MODEL_PATH}")
+        raise RuntimeError(f"Model directory not found: {MODEL_PATH}")
 
     model = mlflow.pyfunc.load_model(MODEL_PATH)
+    print("Model loaded successfully")
     return model
-# =====================================================
-# FEATURE TEMPLATE (ORDER LOCK)
-# =====================================================
-FEATURE_TEMPLATE_PATH = "data/processed/processed_inference.csv"
-FEATURE_COLUMNS = pd.read_csv(FEATURE_TEMPLATE_PATH).columns.tolist()
+
 
 # =====================================================
 # FASTAPI APP
 # =====================================================
 app = FastAPI(
-    title="Retail Demand Forecasting API",
+    title="Self-Healing ML Inference API",
     version="1.0",
 )
 
+@app.on_event("startup")
+def startup_event():
+    load_model()
+
+
 # =====================================================
-# PROMETHEUS METRICS (DEFINE ONCE)
+# METRICS
 # =====================================================
 REQUEST_COUNT = Counter(
     "http_requests_total",
@@ -74,7 +79,14 @@ PREDICTION_LATENCY = Histogram(
 )
 
 # =====================================================
-# INPUT SCHEMA
+# FEATURE TEMPLATE
+# =====================================================
+FEATURE_COLUMNS = pd.read_csv(
+    "data/processed/processed_inference.csv"
+).columns.tolist()
+
+# =====================================================
+# SCHEMA
 # =====================================================
 class PredictionInput(BaseModel):
     date: str
@@ -90,7 +102,6 @@ def build_feature_vector(input_data: PredictionInput) -> pd.DataFrame:
     X = pd.DataFrame(0, columns=FEATURE_COLUMNS, index=[0])
 
     dt = datetime.strptime(input_data.date, "%Y-%m-%d")
-
     if "day" in X.columns:
         X.at[0, "day"] = dt.day
     if "month" in X.columns:
@@ -99,54 +110,65 @@ def build_feature_vector(input_data: PredictionInput) -> pd.DataFrame:
     X.at[0, "price"] = input_data.price
     X.at[0, "promo"] = input_data.promo
 
-    cat_col = f"category_{input_data.category}"
-    if cat_col in X.columns:
-        X.at[0, cat_col] = 1
+    cat = f"category_{input_data.category}"
+    if cat in X.columns:
+        X.at[0, cat] = 1
 
-    reg_col = f"region_{input_data.region}"
-    if reg_col in X.columns:
-        X.at[0, reg_col] = 1
+    reg = f"region_{input_data.region}"
+    if reg in X.columns:
+        X.at[0, reg] = 1
 
     return X
 
 # =====================================================
-# PREDICT ENDPOINT
+# HEALTH
+# =====================================================
+@app.get("/health")
+def health():
+    return {
+        "status": "ok",
+        "model_loaded": model is not None,
+    }
+
+# =====================================================
+# PREDICT
 # =====================================================
 @app.post("/predict")
 def predict(input_data: PredictionInput):
-    start_time = time.time()
-    status_code = 200
+    start = time.time()
+    status = 200
 
     try:
-        final_df = build_feature_vector(input_data)
-        prediction = model.predict(final_df)[0]
+        if model is None:
+            raise RuntimeError("Model not loaded")
+
+        features = build_feature_vector(input_data)
+
+        pred_start = time.time()
+        prediction = model.predict(features)[0]
+        PREDICTION_LATENCY.observe(time.time() - pred_start)
 
         log_prediction(
             features=input_data.dict(),
-            prediction=float(prediction)
+            prediction=float(prediction),
         )
 
-        return {
-            "predicted_sales": round(float(prediction), 2)
-        }
+        return {"predicted_sales": round(float(prediction), 2)}
 
-    except Exception:
-        status_code = 500
-        raise
+    except Exception as e:
+        status = 500
+        raise e
 
     finally:
-        latency = time.time() - start_time
-
-        REQUEST_LATENCY.labels(
-            endpoint="/predict"
-        ).observe(latency)
-
+        REQUEST_LATENCY.labels(endpoint="/predict").observe(time.time() - start)
         REQUEST_COUNT.labels(
             method="POST",
             endpoint="/predict",
-            http_status=status_code
-        ).inc()# =====================================================
-# PROMETHEUS METRICS ENDPOINT
+            http_status=status,
+        ).inc()
+
+# =====================================================
+# METRICS
 # =====================================================
 @app.get("/metrics")
 def metrics():

@@ -1,0 +1,22 @@
+artifact_path: file:C:/Users/talar/retail-mlops/mlruns/1/models/m-45948a4bf341443f97ca9fa83718d01b/artifacts
+flavors:
+  python_function:
+    env:
+      conda: conda.yaml
+      virtualenv: python_env.yaml
+    loader_module: mlflow.sklearn
+    model_path: model.pkl
+    predict_fn: predict
+    python_version: 3.13.4
+  sklearn:
+    code: null
+    pickled_model: model.pkl
+    serialization_format: cloudpickle
+    sklearn_version: 1.8.0
+mlflow_version: 3.7.0
+model_id: m-45948a4bf341443f97ca9fa83718d01b
+model_size_bytes: 442045
+model_uuid: m-45948a4bf341443f97ca9fa83718d01b
+prompts: null
+run_id: 0ae1f90a113742e8bd4d099b79fe1f21
+utc_time_created: '2025-12-23 08:56:12.406230'

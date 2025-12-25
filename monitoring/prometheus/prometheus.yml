@@ -1,8 +1,10 @@
 global:
-  scrape_interval: 5s
-  evaluation_interval: 5s
+  scrape_interval: 15s
+  evaluation_interval: 15s
 
 scrape_configs:
-  - job_name: "retail-mlops-api"
+  - job_name: "mlops-self-healing-api"
+    metrics_path: /metrics
     static_configs:
-      - targets: ["host.docker.internal:8000"]
+      - targets:
+          - mlops-api:8000
