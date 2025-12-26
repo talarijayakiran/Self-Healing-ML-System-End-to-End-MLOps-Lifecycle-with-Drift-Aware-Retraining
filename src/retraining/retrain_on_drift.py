@@ -17,7 +17,7 @@ def retrain_model():
     """
 
     if not DRIFT_REPORT_PATH.exists():
-        print("❌ Drift report not found. Retraining aborted.")
+        print(" Drift report not found. Retraining aborted.")
         return False
 
     with open(DRIFT_REPORT_PATH, "r") as f:
@@ -30,15 +30,16 @@ def retrain_model():
             drift_found = True
 
     if not drift_found:
-        print("✅ No drift detected. Retraining skipped.")
+        print(" No drift detected. Retraining skipped.")
         return False
 
-    print("🚀 Drift confirmed. Starting retraining pipeline...")
+    print(" Drift confirmed. Starting retraining pipeline...")
 
     subprocess.run(
         [sys.executable, "-m", "src.training.train_model"],
         check=True
     )
 
-    print("✅ Retraining completed successfully.")
+    print(" Retraining completed successfully.")
+
     return True
