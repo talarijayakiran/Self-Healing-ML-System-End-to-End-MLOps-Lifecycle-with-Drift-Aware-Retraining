@@ -39,9 +39,10 @@ def run_validation():
     validate(df)
 
     df.to_csv(OUTPUT_PATH, index=False)
-    print("✅ Data validation passed successfully")
+    print(" Data validation passed successfully")
     print(df.head())
 
 
 if __name__ == "__main__":
+
     run_validation()
