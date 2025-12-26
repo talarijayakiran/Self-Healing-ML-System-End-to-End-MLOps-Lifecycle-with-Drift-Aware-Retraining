@@ -27,6 +27,7 @@ def detect_drift(save: bool = True):
         with open(DRIFT_REPORT_PATH, "w") as f:
             json.dump(drift_report, f, indent=2)
 
-        print(f"✅ Drift report saved to {DRIFT_REPORT_PATH}")
+        print(f" Drift report saved to {DRIFT_REPORT_PATH}")
+
 
     return drift_report
