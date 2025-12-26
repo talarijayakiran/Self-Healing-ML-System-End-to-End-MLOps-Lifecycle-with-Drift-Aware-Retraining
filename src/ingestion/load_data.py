@@ -27,11 +27,12 @@ def load_raw_data():
         raise ValueError(f"Missing columns in raw data: {missing}")
 
     df.to_csv(OUTPUT_PATH, index=False)
-    print("✅ Raw data loaded successfully")
+    print(" Raw data loaded successfully")
     print(df.head())
 
     return df
 
 
 if __name__ == "__main__":
+
     load_raw_data()
