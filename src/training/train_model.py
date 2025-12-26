@@ -44,7 +44,7 @@ def train_and_log():
 
         rmse = mean_squared_error(y_test, preds) ** 0.5
 
-        # 🔒 SAFE METRIC LOGGING
+        #  SAFE METRIC LOGGING
         mlflow.log_metric("rmse", rmse, step=0)
         time.sleep(1)  # prevent timestamp collision
 
@@ -54,9 +54,10 @@ def train_and_log():
             registered_model_name=MODEL_NAME
         )
 
-        print("✅ MODEL TRAINED & REGISTERED")
+        print(" MODEL TRAINED & REGISTERED")
         print(f"RMSE: {rmse:.4f}")
 
 
 if __name__ == "__main__":
+
     train_and_log()
