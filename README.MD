@@ -114,11 +114,10 @@ This is how **real ML systems** work in production environments.
 | Scheduling     | Cron (EC2) | Simple & reliable             |
 | Cloud          | AWS EC2    | Full control, low cost        |
 
-No vendor lock-in. No magic services.
 
 ---
 
-## 📁 Repository Structure (Intentional, Not Random)
+## 📁 Repository Structure 
 
 ```
 .
@@ -283,5 +282,6 @@ This system was built end-to-end with a **production mindset**:
 
 > *If it breaks at 3 AM, it’s not production.*
 > *If services are provide to users in 24/7 then only that system is production.*
+
 
 
