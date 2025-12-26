@@ -40,11 +40,12 @@ def run_feature_engineering():
     train_df.to_csv(TRAIN_PATH, index=False)
     X.to_csv(INFER_PATH, index=False)
 
-    print("✅ Feature engineering completed")
+    print(" Feature engineering completed")
     print("Train shape:", train_df.shape)
     print("Inference shape:", X.shape)
     print("Columns:", list(X.columns))
 
 
 if __name__ == "__main__":
+
     run_feature_engineering()
