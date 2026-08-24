@@ -8,16 +8,17 @@ Each section belongs to ONE pipeline stage.
 # =========================
 # RAW / INGESTION SCHEMA
 # =========================
+
 DATE_COLUMN = "date"
 
 CATEGORICAL_COLUMNS = [
     "category",
-    "region"
+    "region",
 ]
 
 NUMERICAL_COLUMNS = [
     "price",
-    "promo"
+    "promo",
 ]
 
 TARGET_COLUMN = "sales"
@@ -29,17 +30,39 @@ RAW_COLUMNS = (
     + [TARGET_COLUMN]
 )
 
+
+# =========================
+# SUPPORTED CATEGORICAL VALUES
+# =========================
+
+SUPPORTED_CATEGORIES = [
+    "Electronics",
+    "Furniture",
+    "Grocery",
+]
+
+SUPPORTED_REGIONS = [
+    "North",
+    "South",
+    "East",
+    "West",
+]
+
+
 # =========================
 # FEATURE ENGINEERING
 # =========================
+
 DERIVED_COLUMNS = [
     "day",
-    "month"
+    "month",
 ]
+
 
 # =========================
 # MODEL FEATURES (FINAL)
 # =========================
+
 MODEL_FEATURES = [
     # numerical
     "price",
