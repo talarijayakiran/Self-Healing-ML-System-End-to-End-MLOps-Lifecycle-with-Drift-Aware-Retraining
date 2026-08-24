@@ -1,4 +1,4 @@
-import { apiClient } from "./client";
+import { apiClient, normalizeApiError } from "./client";
 
 import type {
   PredictionRequest,
@@ -8,10 +8,15 @@ import type {
 export async function predictDemand(
   payload: PredictionRequest,
 ): Promise<PredictionResponse> {
-  const response = await apiClient.post<PredictionResponse>(
-    "/predict",
-    payload,
-  );
+  try {
+    const response =
+      await apiClient.post<PredictionResponse>(
+        "/predict",
+        payload,
+      );
 
-  return response.data;
+    return response.data;
+  } catch (error) {
+    throw normalizeApiError(error);
+  }
 }

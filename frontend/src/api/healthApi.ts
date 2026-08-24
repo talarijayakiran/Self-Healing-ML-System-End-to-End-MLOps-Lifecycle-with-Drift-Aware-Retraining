@@ -1,4 +1,4 @@
-import { apiClient } from "./client";
+import { apiClient, normalizeApiError } from "./client";
 
 import type {
   HealthResponse,
@@ -6,13 +6,23 @@ import type {
 } from "../types/prediction";
 
 export async function checkHealth(): Promise<HealthResponse> {
-  const response = await apiClient.get<HealthResponse>("/health");
+  try {
+    const response =
+      await apiClient.get<HealthResponse>("/health");
 
-  return response.data;
+    return response.data;
+  } catch (error) {
+    throw normalizeApiError(error);
+  }
 }
 
 export async function checkReadiness(): Promise<ReadinessResponse> {
-  const response = await apiClient.get<ReadinessResponse>("/ready");
+  try {
+    const response =
+      await apiClient.get<ReadinessResponse>("/ready");
 
-  return response.data;
+    return response.data;
+  } catch (error) {
+    throw normalizeApiError(error);
+  }
 }

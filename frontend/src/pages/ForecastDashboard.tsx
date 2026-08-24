@@ -7,11 +7,11 @@ import {
   Sparkles,
   TrendingUp,
 } from "lucide-react";
-import axios from "axios";
 
 import { predictDemand } from "../api/predictionApi";
-
+import { isApiError } from "../api/errors";
 import type { PredictionResponse } from "../types/prediction";
+
 const CATEGORIES = [
   "Electronics",
   "Furniture",
@@ -67,7 +67,9 @@ export default function ForecastDashboard() {
     setPrediction(null);
 
     if (!date) {
-      setError("Select a forecast date before generating the forecast.");
+      setError(
+        "Select a forecast date before generating the forecast.",
+      );
       return;
     }
 
@@ -76,7 +78,9 @@ export default function ForecastDashboard() {
       !Number.isFinite(numericPrice) ||
       numericPrice <= 0
     ) {
-      setError("Please enter a product price greater than 0.");
+      setError(
+        "Please enter a product price greater than 0.",
+      );
       return;
     }
 
@@ -92,29 +96,19 @@ export default function ForecastDashboard() {
       });
 
       setPrediction(result);
-    } catch (err: unknown) {
-      console.error("Prediction request failed:", err);
+    } catch (error) {
+      console.error(
+        "Prediction request failed:",
+        error,
+      );
 
-      if (axios.isAxiosError(err)) {
-        const detail = err.response?.data?.detail;
-
-        if (typeof detail === "string") {
-          setError(detail);
-        } else if (err.code === "ECONNABORTED") {
-          setError(
-            "The forecasting service took too long to respond.",
-          );
-        } else if (!err.response) {
-          setError(
-            "Unable to reach the forecasting service. Make sure the FastAPI server is running.",
-          );
-        } else {
-          setError(
-            "The forecasting service returned an unexpected response.",
-          );
-        }
-      } else if (err instanceof Error) {
-        setError(err.message);
+      /*
+       * API errors are normalized inside the API layer.
+       *
+       * The dashboard does NOT know about Axios.
+       */
+      if (isApiError(error)) {
+        setError(error.message);
       } else {
         setError(
           "Unable to generate the forecast. Please try again.",
@@ -126,7 +120,9 @@ export default function ForecastDashboard() {
   }
 
   const promotionLabel =
-    promo === "1" ? "Promotion active" : "No promotion";
+    promo === "1"
+      ? "Promotion active"
+      : "No promotion";
 
   return (
     <main className="relative min-h-screen overflow-hidden bg-[#eeeee9] text-neutral-950">
@@ -241,7 +237,9 @@ export default function ForecastDashboard() {
                   id="forecast-date"
                   type="date"
                   value={date}
-                  onChange={(event) => setDate(event.target.value)}
+                  onChange={(event) =>
+                    setDate(event.target.value)
+                  }
                   className="h-12 w-full rounded-xl border border-neutral-200 bg-neutral-50 px-4 text-sm text-neutral-900 outline-none transition focus:border-neutral-950 focus:bg-white focus:ring-4 focus:ring-neutral-950/5"
                 />
 
