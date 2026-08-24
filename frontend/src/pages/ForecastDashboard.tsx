@@ -8,25 +8,18 @@ import {
   TrendingUp,
 } from "lucide-react";
 
+import {
+  DEFAULT_FORECAST_CATEGORY,
+  DEFAULT_FORECAST_DATE,
+  DEFAULT_FORECAST_PRICE,
+  DEFAULT_FORECAST_PROMO,
+  DEFAULT_FORECAST_REGION,
+  FORECAST_CATEGORIES,
+  FORECAST_REGIONS,
+} from "../constants/forecast";
+
 import { useForecast } from "../hooks/useForecast";
 import type { PredictionRequest } from "../types/prediction";
-
-const CATEGORIES = [
-  "Electronics",
-  "Furniture",
-  "Grocery",
-];
-
-const REGIONS = [
-  "North",
-  "South",
-  "East",
-  "West",
-];
-
-const DEFAULT_DATE = "2024-01-10";
-const DEFAULT_PRICE = "1000";
-const DEFAULT_PROMO = "1";
 
 export default function ForecastDashboard() {
   /*
@@ -35,11 +28,25 @@ export default function ForecastDashboard() {
    * ---------------------------------------------------------
    */
 
-  const [date, setDate] = useState(DEFAULT_DATE);
-  const [category, setCategory] = useState("Electronics");
-  const [region, setRegion] = useState("North");
-  const [price, setPrice] = useState(DEFAULT_PRICE);
-  const [promo, setPromo] = useState(DEFAULT_PROMO);
+  const [date, setDate] = useState(
+    DEFAULT_FORECAST_DATE,
+  );
+
+  const [category, setCategory] = useState(
+    DEFAULT_FORECAST_CATEGORY,
+  );
+
+  const [region, setRegion] = useState(
+    DEFAULT_FORECAST_REGION,
+  );
+
+  const [price, setPrice] = useState(
+    DEFAULT_FORECAST_PRICE,
+  );
+
+  const [promo, setPromo] = useState(
+    DEFAULT_FORECAST_PROMO,
+  );
 
   /*
    * ---------------------------------------------------------
@@ -247,7 +254,7 @@ export default function ForecastDashboard() {
                   }
                   className="h-12 w-full rounded-xl border border-neutral-200 bg-neutral-50 px-4 text-sm text-neutral-900 outline-none transition focus:border-neutral-950 focus:bg-white focus:ring-4 focus:ring-neutral-950/5"
                 >
-                  {CATEGORIES.map((item) => (
+                  {FORECAST_CATEGORIES.map((item) => (
                     <option key={item} value={item}>
                       {item}
                     </option>
@@ -277,7 +284,7 @@ export default function ForecastDashboard() {
                   }
                   className="h-12 w-full rounded-xl border border-neutral-200 bg-neutral-50 px-4 text-sm text-neutral-900 outline-none transition focus:border-neutral-950 focus:bg-white focus:ring-4 focus:ring-neutral-950/5"
                 >
-                  {REGIONS.map((item) => (
+                  {FORECAST_REGIONS.map((item) => (
                     <option key={item} value={item}>
                       {item}
                     </option>
