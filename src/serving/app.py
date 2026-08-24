@@ -1,11 +1,12 @@
 import os
 import time
 import uuid
+from contextlib import asynccontextmanager
 from threading import Lock
 
 import mlflow.pyfunc
 import pandas as pd
-from fastapi import FastAPI
+from fastapi import FastAPI, HTTPException, status
 from fastapi.responses import Response
 from mlflow.tracking import MlflowClient
 from prometheus_client import (
@@ -78,7 +79,7 @@ def load_model(force_reload: bool = False):
 
         if not versions:
             raise RuntimeError(
-                "❌ No registered models found in MLflow"
+                "No registered models found in MLflow"
             )
 
         latest = versions[0]
@@ -101,11 +102,47 @@ def load_model(force_reload: bool = False):
         model_version = latest.version
 
         print(
-            f"✅ Loaded model version: "
+            f"Loaded model version: "
             f"{model_version}"
         )
 
         return model
+
+
+# =====================================================
+# FASTAPI LIFESPAN
+# =====================================================
+
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+
+    print("Starting Self-Healing ML Inference API...")
+
+    try:
+        load_model()
+        print(
+            f"Model initialization successful "
+            f"(version={model_version})"
+        )
+
+    except Exception as exc:
+        print(
+            f"Model initialization failed: {exc}"
+        )
+
+        # Do not crash the process here.
+        #
+        # The application can still start and
+        # /ready will correctly report 503.
+        #
+        # This allows Kubernetes/AWS/load balancers
+        # to detect that the instance is not ready.
+
+    yield
+
+    print(
+        "Shutting down Self-Healing ML Inference API..."
+    )
 
 
 # =====================================================
@@ -115,12 +152,8 @@ def load_model(force_reload: bool = False):
 app = FastAPI(
     title="Self-Healing ML Inference API",
     version="1.0",
+    lifespan=lifespan,
 )
-
-
-@app.on_event("startup")
-def startup_event():
-    load_model()
 
 
 # =====================================================
@@ -158,6 +191,51 @@ PREDICTION_LATENCY = Histogram(
 FEATURE_COLUMNS = pd.read_csv(
     "data/processed/processed_inference.csv"
 ).columns.tolist()
+
+
+# =====================================================
+# HEALTH CHECK
+# =====================================================
+
+@app.get(
+    "/health",
+    response_model=HealthResponse,
+)
+def health():
+
+    return HealthResponse(
+        status="ok",
+        model_loaded=model is not None,
+        model_version=(
+            str(model_version)
+            if model_version is not None
+            else None
+        ),
+    )
+
+
+# =====================================================
+# READINESS CHECK
+# =====================================================
+
+@app.get(
+    "/ready",
+    response_model=HealthResponse,
+)
+def readiness():
+
+    if model is None:
+
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="Model is not ready",
+        )
+
+    return HealthResponse(
+        status="ready",
+        model_loaded=True,
+        model_version=str(model_version),
+    )
 
 
 # =====================================================
@@ -206,27 +284,6 @@ def build_feature_vector(
 
 
 # =====================================================
-# HEALTH CHECK
-# =====================================================
-
-@app.get(
-    "/health",
-    response_model=HealthResponse,
-)
-def health():
-
-    return HealthResponse(
-        status="ok",
-        model_loaded=model is not None,
-        model_version=(
-            str(model_version)
-            if model_version is not None
-            else None
-        ),
-    )
-
-
-# =====================================================
 # PREDICT
 # =====================================================
 
@@ -252,11 +309,25 @@ def predict(
         # Ensure model is available
         # ---------------------------------------------
 
-        current_model = load_model()
+        try:
+            current_model = load_model()
+
+        except Exception as exc:
+
+            status_code = 503
+
+            raise HTTPException(
+                status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+                detail="Prediction service is not ready",
+            ) from exc
 
         if current_model is None:
-            raise RuntimeError(
-                "Model not available"
+
+            status_code = 503
+
+            raise HTTPException(
+                status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+                detail="Prediction model is not available",
             )
 
         # ---------------------------------------------
@@ -273,9 +344,20 @@ def predict(
 
         prediction_start = time.time()
 
-        prediction = current_model.predict(
-            features
-        )[0]
+        try:
+
+            prediction = current_model.predict(
+                features
+            )[0]
+
+        except Exception as exc:
+
+            status_code = 500
+
+            raise HTTPException(
+                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                detail="Model prediction failed",
+            ) from exc
 
         PREDICTION_LATENCY.observe(
             time.time()
@@ -307,12 +389,6 @@ def predict(
             ),
             request_id=request_id,
         )
-
-    except Exception:
-
-        status_code = 500
-
-        raise
 
     finally:
 
