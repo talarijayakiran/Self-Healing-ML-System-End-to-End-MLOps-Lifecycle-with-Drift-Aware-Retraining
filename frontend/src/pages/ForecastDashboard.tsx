@@ -8,9 +8,8 @@ import {
   TrendingUp,
 } from "lucide-react";
 
-import { predictDemand } from "../api/predictionApi";
-import { isApiError } from "../api/errors";
-import type { PredictionResponse } from "../types/prediction";
+import { useForecast } from "../hooks/useForecast";
+import type { PredictionRequest } from "../types/prediction";
 
 const CATEGORIES = [
   "Electronics",
@@ -30,17 +29,32 @@ const DEFAULT_PRICE = "1000";
 const DEFAULT_PROMO = "1";
 
 export default function ForecastDashboard() {
+  /*
+   * ---------------------------------------------------------
+   * FORM STATE
+   * ---------------------------------------------------------
+   */
+
   const [date, setDate] = useState(DEFAULT_DATE);
   const [category, setCategory] = useState("Electronics");
   const [region, setRegion] = useState("North");
   const [price, setPrice] = useState(DEFAULT_PRICE);
   const [promo, setPromo] = useState(DEFAULT_PROMO);
 
-  const [prediction, setPrediction] =
-    useState<PredictionResponse | null>(null);
+  /*
+   * ---------------------------------------------------------
+   * FORECAST REQUEST STATE
+   * ---------------------------------------------------------
+   *
+   * Request lifecycle is owned by the custom hook.
+   */
 
-  const [loading, setLoading] = useState(false);
-  const [error, setError] = useState("");
+  const {
+    prediction,
+    loading,
+    error,
+    generateForecast,
+  } = useForecast();
 
   /*
    * ---------------------------------------------------------
@@ -63,13 +77,7 @@ export default function ForecastDashboard() {
    */
 
   async function handlePrediction() {
-    setError("");
-    setPrediction(null);
-
     if (!date) {
-      setError(
-        "Select a forecast date before generating the forecast.",
-      );
       return;
     }
 
@@ -78,45 +86,18 @@ export default function ForecastDashboard() {
       !Number.isFinite(numericPrice) ||
       numericPrice <= 0
     ) {
-      setError(
-        "Please enter a product price greater than 0.",
-      );
       return;
     }
 
-    setLoading(true);
+    const payload: PredictionRequest = {
+      date,
+      category,
+      region,
+      price: numericPrice,
+      promo: Number(promo),
+    };
 
-    try {
-      const result = await predictDemand({
-        date,
-        category,
-        region,
-        price: numericPrice,
-        promo: Number(promo),
-      });
-
-      setPrediction(result);
-    } catch (error) {
-      console.error(
-        "Prediction request failed:",
-        error,
-      );
-
-      /*
-       * API errors are normalized inside the API layer.
-       *
-       * The dashboard does NOT know about Axios.
-       */
-      if (isApiError(error)) {
-        setError(error.message);
-      } else {
-        setError(
-          "Unable to generate the forecast. Please try again.",
-        );
-      }
-    } finally {
-      setLoading(false);
-    }
+    await generateForecast(payload);
   }
 
   const promotionLabel =
@@ -326,10 +307,9 @@ export default function ForecastDashboard() {
                     min="0.01"
                     step="0.01"
                     value={price}
-                    onChange={(event) => {
-                      setPrice(event.target.value);
-                      setError("");
-                    }}
+                    onChange={(event) =>
+                      setPrice(event.target.value)
+                    }
                     placeholder="1000"
                     aria-invalid={Boolean(priceError)}
                     aria-describedby={
@@ -438,7 +418,8 @@ export default function ForecastDashboard() {
                 disabled={
                   loading ||
                   Boolean(priceError) ||
-                  price === ""
+                  price === "" ||
+                  !date
                 }
                 className="group flex h-13 w-full items-center justify-center gap-2 rounded-xl bg-neutral-950 px-5 text-sm font-semibold text-white shadow-sm transition hover:bg-neutral-800 active:scale-[0.995] disabled:cursor-not-allowed disabled:bg-neutral-300 disabled:text-neutral-500"
               >
