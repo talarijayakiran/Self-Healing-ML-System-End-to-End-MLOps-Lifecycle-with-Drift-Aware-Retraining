@@ -10,14 +10,16 @@ Responsibilities
 3. Split the data deterministically.
 4. Train a candidate RandomForest model.
 5. Evaluate the candidate model.
-6. Log training metadata and metrics to MLflow.
-7. Register the candidate model.
-8. Return a structured TrainingResult.
+6. Apply the model quality gate.
+7. Log training metadata and metrics to MLflow.
+8. Register the candidate model only if the quality gate passes.
+9. Return a structured TrainingResult.
 
 Model promotion is intentionally NOT handled here.
 
-Promotion belongs to the model quality gate implemented in the
-next lifecycle stage.
+The quality gate decides whether the candidate satisfies the
+minimum model quality policy. Production promotion belongs to
+a separate lifecycle stage.
 """
 
 from __future__ import annotations
@@ -33,6 +35,7 @@ from sklearn.metrics import mean_squared_error
 from sklearn.model_selection import train_test_split
 
 from src.config.schema import MODEL_FEATURES, TARGET_COLUMN
+from src.evaluation.quality_gate import evaluate_model_quality
 
 
 # ============================================================
@@ -73,6 +76,7 @@ class TrainingResult:
     model_name: str
     model_version: str | None
     rmse: float
+    quality_gate_passed: bool
     training_rows: int
     validation_rows: int
     feature_count: int
@@ -90,12 +94,14 @@ def load_training_data() -> pd.DataFrame:
     Returns
     -------
     pd.DataFrame
-        Training dataset containing MODEL_FEATURES and TARGET_COLUMN.
+        Training dataset containing MODEL_FEATURES and
+        TARGET_COLUMN.
 
     Raises
     ------
     FileNotFoundError
         If the processed training dataset does not exist.
+
     ValueError
         If the dataset violates the training feature contract.
     """
@@ -136,7 +142,7 @@ def load_training_data() -> pd.DataFrame:
             f"{unexpected_columns}"
         )
 
-    # Enforce canonical ordering.
+    # Enforce canonical feature ordering.
     df = df[
         [
             *MODEL_FEATURES,
@@ -184,15 +190,22 @@ def build_model() -> RandomForestRegressor:
 
 def train_and_log() -> TrainingResult:
     """
-    Train and register a candidate model.
+    Train, evaluate, quality-check, and register a candidate model.
 
-    This function does NOT decide whether the model should become
-    the production model.
+    The candidate model is registered only when it passes the
+    configured model quality gate.
+
+    This function does NOT promote the candidate to production.
 
     Returns
     -------
     TrainingResult
         Structured metadata describing the candidate training run.
+
+    Raises
+    ------
+    RuntimeError
+        If the candidate fails the model quality gate.
     """
 
     # ---------------------------------------------------------
@@ -309,6 +322,67 @@ def train_and_log() -> TrainingResult:
         )
 
         # -----------------------------------------------------
+        # MODEL QUALITY GATE
+        # -----------------------------------------------------
+        #
+        # IMPORTANT:
+        #
+        # The candidate must pass the quality gate BEFORE
+        # registration.
+        #
+        # This prevents an invalid candidate from entering
+        # the model registry.
+        # -----------------------------------------------------
+
+        quality_result = evaluate_model_quality(
+            rmse=rmse,
+        )
+
+        mlflow.log_metric(
+            "quality_gate_passed",
+            int(quality_result.passed),
+        )
+
+        mlflow.log_metric(
+            "max_allowed_rmse",
+            quality_result.max_rmse,
+        )
+
+        mlflow.set_tag(
+            "quality_gate_status",
+            "passed"
+            if quality_result.passed
+            else "failed",
+        )
+
+        mlflow.set_tag(
+            "quality_gate_reason",
+            quality_result.reason,
+        )
+
+        if not quality_result.passed:
+            print(
+                "MODEL QUALITY GATE FAILED"
+            )
+
+            print(
+                quality_result.reason
+            )
+
+            raise RuntimeError(
+                "Candidate model rejected by quality gate: "
+                f"{quality_result.reason}"
+            )
+
+        print(
+            "MODEL QUALITY GATE PASSED"
+        )
+
+        print(
+            quality_result.reason
+        )
+
+        # -----------------------------------------------------
         # FEATURE CONTRACT METADATA
         # -----------------------------------------------------
 
@@ -330,6 +404,10 @@ def train_and_log() -> TrainingResult:
         # -----------------------------------------------------
         # MODEL REGISTRATION
         # -----------------------------------------------------
+        #
+        # Registration happens ONLY after the quality gate
+        # has passed.
+        # -----------------------------------------------------
 
         model_info = mlflow.sklearn.log_model(
             model,
@@ -345,16 +423,15 @@ def train_and_log() -> TrainingResult:
 
         model_version = None
 
-        if (
-            model_info
-            and getattr(
-                model_info,
-                "registered_model_version",
-                None,
-            )
-        ):
+        registered_version = getattr(
+            model_info,
+            "registered_model_version",
+            None,
+        )
+
+        if registered_version:
             model_version = str(
-                model_info.registered_model_version
+                registered_version
             )
 
         result = TrainingResult(
@@ -362,6 +439,7 @@ def train_and_log() -> TrainingResult:
             model_name=MODEL_NAME,
             model_version=model_version,
             rmse=rmse,
+            quality_gate_passed=quality_result.passed,
             training_rows=len(X_train),
             validation_rows=len(X_validation),
             feature_count=len(MODEL_FEATURES),
@@ -392,15 +470,23 @@ def train_and_log() -> TrainingResult:
     )
 
     print(
-        f"Training rows: {result.training_rows}"
+        f"Quality gate passed: "
+        f"{result.quality_gate_passed}"
     )
 
     print(
-        f"Validation rows: {result.validation_rows}"
+        f"Training rows: "
+        f"{result.training_rows}"
     )
 
     print(
-        f"Feature count: {result.feature_count}"
+        f"Validation rows: "
+        f"{result.validation_rows}"
+    )
+
+    print(
+        f"Feature count: "
+        f"{result.feature_count}"
     )
 
     return result
