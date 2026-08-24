@@ -9,11 +9,9 @@ import {
 } from "lucide-react";
 import axios from "axios";
 
-import {
-  predictDemand,
-  type PredictionResponse,
-} from "../api/predictionApi";
+import { predictDemand } from "../api/predictionApi";
 
+import type { PredictionResponse } from "../types/prediction";
 const CATEGORIES = [
   "Electronics",
   "Furniture",

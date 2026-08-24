@@ -17,3 +17,9 @@ export interface HealthResponse {
   model_loaded: boolean;
   model_version: string | null;
 }
+
+export interface ReadinessResponse {
+  status: string;
+  model_loaded: boolean;
+  model_version: string | null;
+}
