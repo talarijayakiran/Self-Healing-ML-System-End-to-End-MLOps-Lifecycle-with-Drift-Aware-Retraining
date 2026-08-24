@@ -1,63 +1,415 @@
 # src/training/train_model.py
 
-import pandas as pd
+"""
+Model training pipeline for the retail demand forecasting system.
+
+Responsibilities
+----------------
+1. Load the canonical training dataset.
+2. Validate the model feature contract.
+3. Split the data deterministically.
+4. Train a candidate RandomForest model.
+5. Evaluate the candidate model.
+6. Log training metadata and metrics to MLflow.
+7. Register the candidate model.
+8. Return a structured TrainingResult.
+
+Model promotion is intentionally NOT handled here.
+
+Promotion belongs to the model quality gate implemented in the
+next lifecycle stage.
+"""
+
+from __future__ import annotations
+
+from dataclasses import dataclass
+from pathlib import Path
+
 import mlflow
 import mlflow.sklearn
-import time
-
-from sklearn.model_selection import train_test_split
+import pandas as pd
 from sklearn.ensemble import RandomForestRegressor
 from sklearn.metrics import mean_squared_error
+from sklearn.model_selection import train_test_split
 
-from src.config.schema import TARGET_COLUMN
-
-DATA_PATH = "data/processed/processed_train.csv"
-EXPERIMENT_NAME = "Retail Demand Forecasting"
-MODEL_NAME = "retail_demand_forecaster"
+from src.config.schema import MODEL_FEATURES, TARGET_COLUMN
 
 
-def train_and_log():
-    df = pd.read_csv(DATA_PATH)
+# ============================================================
+# CONFIGURATION
+# ============================================================
 
-    X = df.drop(columns=[TARGET_COLUMN])
-    y = df[TARGET_COLUMN]
+DATA_PATH = Path(
+    "data/processed/processed_train.csv"
+)
 
-    # SAFETY: ensure enough test samples
-    test_size = 0.4 if len(df) < 10 else 0.25
+EXPERIMENT_NAME = (
+    "Retail Demand Forecasting"
+)
 
-    X_train, X_test, y_train, y_test = train_test_split(
-        X, y, test_size=test_size, random_state=42
-    )
+MODEL_NAME = (
+    "retail_demand_forecaster"
+)
 
-    model = RandomForestRegressor(
-        n_estimators=200,
-        random_state=42,
-        n_jobs=-1
-    )
+RANDOM_STATE = 42
 
-    mlflow.set_experiment(EXPERIMENT_NAME)
+TEST_SIZE = 0.25
 
-    with mlflow.start_run():
-        model.fit(X_train, y_train)
+N_ESTIMATORS = 200
 
-        preds = model.predict(X_test)
 
-        rmse = mean_squared_error(y_test, preds) ** 0.5
+# ============================================================
+# TRAINING RESULT
+# ============================================================
 
-        #  SAFE METRIC LOGGING
-        mlflow.log_metric("rmse", rmse, step=0)
-        time.sleep(1)  # prevent timestamp collision
 
-        mlflow.sklearn.log_model(
-            model,
-            name="model",
-            registered_model_name=MODEL_NAME
+@dataclass(frozen=True)
+class TrainingResult:
+    """
+    Immutable result returned by the training pipeline.
+    """
+
+    run_id: str
+    model_name: str
+    model_version: str | None
+    rmse: float
+    training_rows: int
+    validation_rows: int
+    feature_count: int
+
+
+# ============================================================
+# DATA LOADING
+# ============================================================
+
+
+def load_training_data() -> pd.DataFrame:
+    """
+    Load the canonical training dataset.
+
+    Returns
+    -------
+    pd.DataFrame
+        Training dataset containing MODEL_FEATURES and TARGET_COLUMN.
+
+    Raises
+    ------
+    FileNotFoundError
+        If the processed training dataset does not exist.
+    ValueError
+        If the dataset violates the training feature contract.
+    """
+
+    if not DATA_PATH.exists():
+        raise FileNotFoundError(
+            f"Training dataset not found: {DATA_PATH}"
         )
 
-        print(" MODEL TRAINED & REGISTERED")
-        print(f"RMSE: {rmse:.4f}")
+    df = pd.read_csv(DATA_PATH)
+
+    required_columns = [
+        *MODEL_FEATURES,
+        TARGET_COLUMN,
+    ]
+
+    missing_columns = [
+        column
+        for column in required_columns
+        if column not in df.columns
+    ]
+
+    if missing_columns:
+        raise ValueError(
+            "Training dataset violates the model feature contract. "
+            f"Missing columns: {missing_columns}"
+        )
+
+    unexpected_columns = [
+        column
+        for column in df.columns
+        if column not in required_columns
+    ]
+
+    if unexpected_columns:
+        raise ValueError(
+            "Training dataset contains unexpected columns: "
+            f"{unexpected_columns}"
+        )
+
+    # Enforce canonical ordering.
+    df = df[
+        [
+            *MODEL_FEATURES,
+            TARGET_COLUMN,
+        ]
+    ]
+
+    if df.empty:
+        raise ValueError(
+            "Training dataset is empty."
+        )
+
+    if df.isnull().any().any():
+        raise ValueError(
+            "Training dataset contains null values."
+        )
+
+    return df
+
+
+# ============================================================
+# MODEL CREATION
+# ============================================================
+
+
+def build_model() -> RandomForestRegressor:
+    """
+    Construct the candidate model.
+
+    The model configuration is intentionally deterministic so that
+    experiments are reproducible.
+    """
+
+    return RandomForestRegressor(
+        n_estimators=N_ESTIMATORS,
+        random_state=RANDOM_STATE,
+        n_jobs=-1,
+    )
+
+
+# ============================================================
+# TRAINING
+# ============================================================
+
+
+def train_and_log() -> TrainingResult:
+    """
+    Train and register a candidate model.
+
+    This function does NOT decide whether the model should become
+    the production model.
+
+    Returns
+    -------
+    TrainingResult
+        Structured metadata describing the candidate training run.
+    """
+
+    # ---------------------------------------------------------
+    # LOAD DATA
+    # ---------------------------------------------------------
+
+    df = load_training_data()
+
+    X = df[MODEL_FEATURES]
+    y = df[TARGET_COLUMN]
+
+    # ---------------------------------------------------------
+    # DATASET SIZE SAFETY
+    # ---------------------------------------------------------
+
+    if len(df) < 2:
+        raise ValueError(
+            "At least two training samples are required."
+        )
+
+    effective_test_size = (
+        0.4
+        if len(df) < 10
+        else TEST_SIZE
+    )
+
+    # ---------------------------------------------------------
+    # TRAIN / VALIDATION SPLIT
+    # ---------------------------------------------------------
+
+    X_train, X_validation, y_train, y_validation = (
+        train_test_split(
+            X,
+            y,
+            test_size=effective_test_size,
+            random_state=RANDOM_STATE,
+        )
+    )
+
+    if X_train.empty:
+        raise ValueError(
+            "Training split contains no samples."
+        )
+
+    if X_validation.empty:
+        raise ValueError(
+            "Validation split contains no samples."
+        )
+
+    # ---------------------------------------------------------
+    # MODEL
+    # ---------------------------------------------------------
+
+    model = build_model()
+
+    # ---------------------------------------------------------
+    # MLFLOW EXPERIMENT
+    # ---------------------------------------------------------
+
+    mlflow.set_experiment(
+        EXPERIMENT_NAME
+    )
+
+    with mlflow.start_run() as run:
+
+        # -----------------------------------------------------
+        # LOG PARAMETERS
+        # -----------------------------------------------------
+
+        mlflow.log_params(
+            {
+                "model_type": "RandomForestRegressor",
+                "n_estimators": N_ESTIMATORS,
+                "random_state": RANDOM_STATE,
+                "test_size": effective_test_size,
+                "feature_count": len(MODEL_FEATURES),
+                "training_rows": len(X_train),
+                "validation_rows": len(X_validation),
+            }
+        )
+
+        # -----------------------------------------------------
+        # TRAIN
+        # -----------------------------------------------------
+
+        model.fit(
+            X_train,
+            y_train,
+        )
+
+        # -----------------------------------------------------
+        # EVALUATE
+        # -----------------------------------------------------
+
+        predictions = model.predict(
+            X_validation
+        )
+
+        rmse = float(
+            mean_squared_error(
+                y_validation,
+                predictions,
+            )
+            ** 0.5
+        )
+
+        # -----------------------------------------------------
+        # METRICS
+        # -----------------------------------------------------
+
+        mlflow.log_metric(
+            "rmse",
+            rmse,
+        )
+
+        # -----------------------------------------------------
+        # FEATURE CONTRACT METADATA
+        # -----------------------------------------------------
+
+        mlflow.set_tag(
+            "feature_contract",
+            "MODEL_FEATURES",
+        )
+
+        mlflow.set_tag(
+            "model_role",
+            "candidate",
+        )
+
+        mlflow.set_tag(
+            "pipeline_stage",
+            "training",
+        )
+
+        # -----------------------------------------------------
+        # MODEL REGISTRATION
+        # -----------------------------------------------------
+
+        model_info = mlflow.sklearn.log_model(
+            model,
+            name="model",
+            registered_model_name=MODEL_NAME,
+        )
+
+        # -----------------------------------------------------
+        # TRAINING RESULT
+        # -----------------------------------------------------
+
+        run_id = run.info.run_id
+
+        model_version = None
+
+        if (
+            model_info
+            and getattr(
+                model_info,
+                "registered_model_version",
+                None,
+            )
+        ):
+            model_version = str(
+                model_info.registered_model_version
+            )
+
+        result = TrainingResult(
+            run_id=run_id,
+            model_name=MODEL_NAME,
+            model_version=model_version,
+            rmse=rmse,
+            training_rows=len(X_train),
+            validation_rows=len(X_validation),
+            feature_count=len(MODEL_FEATURES),
+        )
+
+    # ---------------------------------------------------------
+    # OUTPUT
+    # ---------------------------------------------------------
+
+    print(
+        "Candidate model trained successfully."
+    )
+
+    print(
+        f"Run ID: {result.run_id}"
+    )
+
+    print(
+        f"Model: {result.model_name}"
+    )
+
+    print(
+        f"Model version: {result.model_version}"
+    )
+
+    print(
+        f"RMSE: {result.rmse:.4f}"
+    )
+
+    print(
+        f"Training rows: {result.training_rows}"
+    )
+
+    print(
+        f"Validation rows: {result.validation_rows}"
+    )
+
+    print(
+        f"Feature count: {result.feature_count}"
+    )
+
+    return result
+
+
+# ============================================================
+# CLI ENTRYPOINT
+# ============================================================
 
 
 if __name__ == "__main__":
-
     train_and_log()
