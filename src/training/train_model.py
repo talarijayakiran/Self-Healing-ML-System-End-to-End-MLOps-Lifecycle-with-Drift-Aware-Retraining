@@ -1,5 +1,3 @@
-# src/training/train_model.py
-
 """
 Model training pipeline for the retail demand forecasting system.
 
@@ -11,47 +9,54 @@ Responsibilities
 4. Train a candidate RandomForest model.
 5. Evaluate the candidate model.
 6. Apply the model quality gate.
-7. Log training metadata and metrics to MLflow.
-8. Register the candidate model only if the quality gate passes.
+7. Register only quality-approved candidates.
+8. Persist promotion eligibility metadata on the MLflow
+   model version.
 9. Return a structured TrainingResult.
 
 Model promotion is intentionally NOT handled here.
 
-The quality gate decides whether the candidate satisfies the
-minimum model quality policy. Production promotion belongs to
-a separate lifecycle stage.
+Promotion belongs to src.registry.promotion.
+
+Configuration ownership
+-----------------------
+Runtime/deployment configuration is owned by
+src.config.settings.
+
+ML/data contracts are owned by src.config.schema.
+
+Training algorithm parameters remain explicit training-policy
+constants in this module.
 """
 
 from __future__ import annotations
 
 from dataclasses import dataclass
-from pathlib import Path
 
 import mlflow
 import mlflow.sklearn
 import pandas as pd
+from mlflow.tracking import MlflowClient
 from sklearn.ensemble import RandomForestRegressor
 from sklearn.metrics import mean_squared_error
 from sklearn.model_selection import train_test_split
 
-from src.config.schema import MODEL_FEATURES, TARGET_COLUMN
-from src.evaluation.quality_gate import evaluate_model_quality
-
-
-# ============================================================
-# CONFIGURATION
-# ============================================================
-
-DATA_PATH = Path(
-    "data/processed/processed_train.csv"
+from src.config.schema import (
+    MODEL_FEATURES,
+    TARGET_COLUMN,
 )
+from src.config.settings import settings
+from src.evaluation.quality_gate import (
+    evaluate_model_quality,
+)
+
+
+# ============================================================
+# TRAINING POLICY
+# ============================================================
 
 EXPERIMENT_NAME = (
     "Retail Demand Forecasting"
-)
-
-MODEL_NAME = (
-    "retail_demand_forecaster"
 )
 
 RANDOM_STATE = 42
@@ -59,6 +64,23 @@ RANDOM_STATE = 42
 TEST_SIZE = 0.25
 
 N_ESTIMATORS = 200
+
+
+# ============================================================
+# MLflow MODEL-VERSION TAGS
+# ============================================================
+
+QUALITY_GATE_PASSED_TAG = (
+    "quality_gate_passed"
+)
+
+MODEL_ROLE_TAG = (
+    "model_role"
+)
+
+MODEL_ROLE_CANDIDATE = (
+    "candidate"
+)
 
 
 # ============================================================
@@ -83,35 +105,50 @@ class TrainingResult:
 
 
 # ============================================================
+# RUNTIME CONFIGURATION
+# ============================================================
+
+
+def configure_mlflow() -> None:
+    """
+    Configure MLflow using the current runtime settings.
+
+    MLflow tracking configuration belongs to deployment/runtime
+    configuration rather than the training algorithm itself.
+    """
+
+    mlflow.set_tracking_uri(
+        settings.mlflow_tracking_uri
+    )
+
+
+# ============================================================
 # DATA LOADING
 # ============================================================
 
 
 def load_training_data() -> pd.DataFrame:
     """
-    Load the canonical training dataset.
+    Load and validate the canonical training dataset.
 
-    Returns
-    -------
-    pd.DataFrame
-        Training dataset containing MODEL_FEATURES and
-        TARGET_COLUMN.
+    The dataset path comes from runtime configuration.
 
-    Raises
-    ------
-    FileNotFoundError
-        If the processed training dataset does not exist.
-
-    ValueError
-        If the dataset violates the training feature contract.
+    The required columns and their ordering come from
+    src.config.schema.
     """
 
-    if not DATA_PATH.exists():
+    data_path = (
+        settings.reference_data_path
+    )
+
+    if not data_path.exists():
         raise FileNotFoundError(
-            f"Training dataset not found: {DATA_PATH}"
+            f"Training dataset not found: {data_path}"
         )
 
-    df = pd.read_csv(DATA_PATH)
+    df = pd.read_csv(
+        data_path
+    )
 
     required_columns = [
         *MODEL_FEATURES,
@@ -126,7 +163,8 @@ def load_training_data() -> pd.DataFrame:
 
     if missing_columns:
         raise ValueError(
-            "Training dataset violates the model feature contract. "
+            "Training dataset violates the model "
+            "feature contract. "
             f"Missing columns: {missing_columns}"
         )
 
@@ -138,17 +176,24 @@ def load_training_data() -> pd.DataFrame:
 
     if unexpected_columns:
         raise ValueError(
-            "Training dataset contains unexpected columns: "
-            f"{unexpected_columns}"
+            "Training dataset contains unexpected "
+            f"columns: {unexpected_columns}"
         )
 
-    # Enforce canonical feature ordering.
+    # --------------------------------------------------------
+    # Canonical feature ordering
+    # --------------------------------------------------------
+
     df = df[
         [
             *MODEL_FEATURES,
             TARGET_COLUMN,
         ]
     ]
+
+    # --------------------------------------------------------
+    # Dataset safety
+    # --------------------------------------------------------
 
     if df.empty:
         raise ValueError(
@@ -170,10 +215,10 @@ def load_training_data() -> pd.DataFrame:
 
 def build_model() -> RandomForestRegressor:
     """
-    Construct the candidate model.
+    Construct the deterministic candidate model.
 
-    The model configuration is intentionally deterministic so that
-    experiments are reproducible.
+    These parameters are training-policy decisions and are
+    intentionally not sourced from deployment configuration.
     """
 
     return RandomForestRegressor(
@@ -184,42 +229,85 @@ def build_model() -> RandomForestRegressor:
 
 
 # ============================================================
+# MODEL-VERSION METADATA
+# ============================================================
+
+
+def persist_model_version_metadata(
+    *,
+    model_name: str,
+    model_version: str,
+    quality_gate_passed: bool,
+    client: MlflowClient,
+) -> None:
+    """
+    Persist lifecycle eligibility metadata directly onto
+    the registered MLflow model version.
+
+    This is intentionally different from mlflow.set_tag(),
+    which creates a run-level tag.
+
+    Promotion reads model-version metadata, so the eligibility
+    decision must be persisted at the model-version level.
+    """
+
+    client.set_model_version_tag(
+        name=model_name,
+        version=model_version,
+        key=QUALITY_GATE_PASSED_TAG,
+        value=str(
+            quality_gate_passed
+        ).lower(),
+    )
+
+    if quality_gate_passed:
+
+        client.set_model_version_tag(
+            name=model_name,
+            version=model_version,
+            key=MODEL_ROLE_TAG,
+            value=MODEL_ROLE_CANDIDATE,
+        )
+
+
+# ============================================================
 # TRAINING
 # ============================================================
 
 
 def train_and_log() -> TrainingResult:
     """
-    Train, evaluate, quality-check, and register a candidate model.
+    Train, evaluate and register a candidate model.
 
-    The candidate model is registered only when it passes the
-    configured model quality gate.
+    A model is registered as a candidate only after it passes
+    the quality gate.
 
-    This function does NOT promote the candidate to production.
-
-    Returns
-    -------
-    TrainingResult
-        Structured metadata describing the candidate training run.
-
-    Raises
-    ------
-    RuntimeError
-        If the candidate fails the model quality gate.
+    Production promotion is NOT performed here.
     """
 
-    # ---------------------------------------------------------
+    # --------------------------------------------------------
+    # RUNTIME CONFIGURATION
+    # --------------------------------------------------------
+
+    configure_mlflow()
+
+    model_name = (
+        settings.mlflow_model_name
+    )
+
+    # --------------------------------------------------------
     # LOAD DATA
-    # ---------------------------------------------------------
+    # --------------------------------------------------------
 
     df = load_training_data()
 
     X = df[MODEL_FEATURES]
+
     y = df[TARGET_COLUMN]
 
-    # ---------------------------------------------------------
+    # --------------------------------------------------------
     # DATASET SIZE SAFETY
-    # ---------------------------------------------------------
+    # --------------------------------------------------------
 
     if len(df) < 2:
         raise ValueError(
@@ -232,17 +320,20 @@ def train_and_log() -> TrainingResult:
         else TEST_SIZE
     )
 
-    # ---------------------------------------------------------
+    # --------------------------------------------------------
     # TRAIN / VALIDATION SPLIT
-    # ---------------------------------------------------------
+    # --------------------------------------------------------
 
-    X_train, X_validation, y_train, y_validation = (
-        train_test_split(
-            X,
-            y,
-            test_size=effective_test_size,
-            random_state=RANDOM_STATE,
-        )
+    (
+        X_train,
+        X_validation,
+        y_train,
+        y_validation,
+    ) = train_test_split(
+        X,
+        y,
+        test_size=effective_test_size,
+        random_state=RANDOM_STATE,
     )
 
     if X_train.empty:
@@ -255,15 +346,15 @@ def train_and_log() -> TrainingResult:
             "Validation split contains no samples."
         )
 
-    # ---------------------------------------------------------
+    # --------------------------------------------------------
     # MODEL
-    # ---------------------------------------------------------
+    # --------------------------------------------------------
 
     model = build_model()
 
-    # ---------------------------------------------------------
+    # --------------------------------------------------------
     # MLFLOW EXPERIMENT
-    # ---------------------------------------------------------
+    # --------------------------------------------------------
 
     mlflow.set_experiment(
         EXPERIMENT_NAME
@@ -271,38 +362,57 @@ def train_and_log() -> TrainingResult:
 
     with mlflow.start_run() as run:
 
-        # -----------------------------------------------------
-        # LOG PARAMETERS
-        # -----------------------------------------------------
+        # ----------------------------------------------------
+        # PARAMETERS
+        # ----------------------------------------------------
 
         mlflow.log_params(
             {
-                "model_type": "RandomForestRegressor",
+                "model_type": (
+                    "RandomForestRegressor"
+                ),
                 "n_estimators": N_ESTIMATORS,
                 "random_state": RANDOM_STATE,
                 "test_size": effective_test_size,
-                "feature_count": len(MODEL_FEATURES),
-                "training_rows": len(X_train),
-                "validation_rows": len(X_validation),
+                "feature_count": len(
+                    MODEL_FEATURES
+                ),
+                "training_rows": len(
+                    X_train
+                ),
+                "validation_rows": len(
+                    X_validation
+                ),
+                "quality_gate_threshold": (
+                    settings.max_rmse
+                ),
+                "training_data_path": str(
+                    settings.reference_data_path
+                ),
+                "mlflow_model_name": model_name,
             }
         )
 
-        # -----------------------------------------------------
+        # ----------------------------------------------------
         # TRAIN
-        # -----------------------------------------------------
+        # ----------------------------------------------------
 
         model.fit(
             X_train,
             y_train,
         )
 
-        # -----------------------------------------------------
-        # EVALUATE
-        # -----------------------------------------------------
+        # ----------------------------------------------------
+        # PREDICT
+        # ----------------------------------------------------
 
         predictions = model.predict(
             X_validation
         )
+
+        # ----------------------------------------------------
+        # RMSE
+        # ----------------------------------------------------
 
         rmse = float(
             mean_squared_error(
@@ -312,79 +422,24 @@ def train_and_log() -> TrainingResult:
             ** 0.5
         )
 
-        # -----------------------------------------------------
-        # METRICS
-        # -----------------------------------------------------
+        # ----------------------------------------------------
+        # QUALITY GATE
+        # ----------------------------------------------------
+
+        quality_result = (
+            evaluate_model_quality(
+                rmse=rmse,
+            )
+        )
+
+        # ----------------------------------------------------
+        # LOG QUALITY-GATE RESULT AT RUN LEVEL
+        # ----------------------------------------------------
 
         mlflow.log_metric(
             "rmse",
             rmse,
         )
-
-        # -----------------------------------------------------
-        # MODEL QUALITY GATE
-        # -----------------------------------------------------
-        #
-        # IMPORTANT:
-        #
-        # The candidate must pass the quality gate BEFORE
-        # registration.
-        #
-        # This prevents an invalid candidate from entering
-        # the model registry.
-        # -----------------------------------------------------
-
-        quality_result = evaluate_model_quality(
-            rmse=rmse,
-        )
-
-        mlflow.log_metric(
-            "quality_gate_passed",
-            int(quality_result.passed),
-        )
-
-        mlflow.log_metric(
-            "max_allowed_rmse",
-            quality_result.max_rmse,
-        )
-
-        mlflow.set_tag(
-            "quality_gate_status",
-            "passed"
-            if quality_result.passed
-            else "failed",
-        )
-
-        mlflow.set_tag(
-            "quality_gate_reason",
-            quality_result.reason,
-        )
-
-        if not quality_result.passed:
-            print(
-                "MODEL QUALITY GATE FAILED"
-            )
-
-            print(
-                quality_result.reason
-            )
-
-            raise RuntimeError(
-                "Candidate model rejected by quality gate: "
-                f"{quality_result.reason}"
-            )
-
-        print(
-            "MODEL QUALITY GATE PASSED"
-        )
-
-        print(
-            quality_result.reason
-        )
-
-        # -----------------------------------------------------
-        # FEATURE CONTRACT METADATA
-        # -----------------------------------------------------
 
         mlflow.set_tag(
             "feature_contract",
@@ -393,7 +448,7 @@ def train_and_log() -> TrainingResult:
 
         mlflow.set_tag(
             "model_role",
-            "candidate",
+            MODEL_ROLE_CANDIDATE,
         )
 
         mlflow.set_tag(
@@ -401,27 +456,63 @@ def train_and_log() -> TrainingResult:
             "training",
         )
 
-        # -----------------------------------------------------
+        mlflow.set_tag(
+            "quality_gate_passed",
+            str(
+                quality_result.passed
+            ).lower(),
+        )
+
+        # ----------------------------------------------------
+        # QUALITY GATE FAILURE
+        # ----------------------------------------------------
+
+        if not quality_result.passed:
+
+            print(
+                "MODEL QUALITY GATE FAILED"
+            )
+
+            print(
+                "Candidate model rejected: "
+                f"RMSE {rmse:.4f} > "
+                "threshold "
+                f"{quality_result.max_rmse:.4f}."
+            )
+
+            raise RuntimeError(
+                "Candidate model failed the "
+                "model quality gate."
+            )
+
+        # ----------------------------------------------------
+        # QUALITY GATE SUCCESS
+        # ----------------------------------------------------
+
+        print(
+            "MODEL QUALITY GATE PASSED"
+        )
+
+        print(
+            "Candidate passed quality gate: "
+            f"RMSE {rmse:.4f} <= "
+            "threshold "
+            f"{quality_result.max_rmse:.4f}."
+        )
+
+        # ----------------------------------------------------
         # MODEL REGISTRATION
-        # -----------------------------------------------------
-        #
-        # Registration happens ONLY after the quality gate
-        # has passed.
-        # -----------------------------------------------------
+        # ----------------------------------------------------
 
         model_info = mlflow.sklearn.log_model(
             model,
             name="model",
-            registered_model_name=MODEL_NAME,
+            registered_model_name=model_name,
         )
 
-        # -----------------------------------------------------
-        # TRAINING RESULT
-        # -----------------------------------------------------
-
-        run_id = run.info.run_id
-
-        model_version = None
+        # ----------------------------------------------------
+        # REGISTERED MODEL VERSION
+        # ----------------------------------------------------
 
         registered_version = getattr(
             model_info,
@@ -429,25 +520,53 @@ def train_and_log() -> TrainingResult:
             None,
         )
 
-        if registered_version:
-            model_version = str(
-                registered_version
+        if not registered_version:
+            raise RuntimeError(
+                "Model registration succeeded but "
+                "MLflow did not return a model version."
             )
 
-        result = TrainingResult(
-            run_id=run_id,
-            model_name=MODEL_NAME,
-            model_version=model_version,
-            rmse=rmse,
-            quality_gate_passed=quality_result.passed,
-            training_rows=len(X_train),
-            validation_rows=len(X_validation),
-            feature_count=len(MODEL_FEATURES),
+        model_version = str(
+            registered_version
         )
 
-    # ---------------------------------------------------------
+        # ----------------------------------------------------
+        # PERSIST MODEL-VERSION METADATA
+        # ----------------------------------------------------
+
+        mlflow_client = MlflowClient()
+
+        persist_model_version_metadata(
+            model_name=model_name,
+            model_version=model_version,
+            quality_gate_passed=True,
+            client=mlflow_client,
+        )
+
+        # ----------------------------------------------------
+        # STRUCTURED RESULT
+        # ----------------------------------------------------
+
+        result = TrainingResult(
+            run_id=run.info.run_id,
+            model_name=model_name,
+            model_version=model_version,
+            rmse=rmse,
+            quality_gate_passed=True,
+            training_rows=len(
+                X_train
+            ),
+            validation_rows=len(
+                X_validation
+            ),
+            feature_count=len(
+                MODEL_FEATURES
+            ),
+        )
+
+    # --------------------------------------------------------
     # OUTPUT
-    # ---------------------------------------------------------
+    # --------------------------------------------------------
 
     print(
         "Candidate model trained successfully."
@@ -470,7 +589,7 @@ def train_and_log() -> TrainingResult:
     )
 
     print(
-        f"Quality gate passed: "
+        "Quality gate passed: "
         f"{result.quality_gate_passed}"
     )
 
