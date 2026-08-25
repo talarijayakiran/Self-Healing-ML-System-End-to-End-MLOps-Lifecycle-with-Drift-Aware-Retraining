@@ -81,3 +81,9 @@ MODEL_FEATURES = [
     "region_East",
     "region_West",
 ]
+
+# =========================
+# MODEL QUALITY POLICY
+# =========================
+
+MAX_RMSE = 3.0
