@@ -1,5 +1,3 @@
-
-
 import pandas as pd
 import pytest
 
@@ -33,7 +31,9 @@ def test_drift_ratio_is_calculated_correctly():
         120.0,
     )
 
-    assert result == pytest.approx(0.20)
+    assert result == pytest.approx(
+        0.20
+    )
 
 
 def test_zero_reference_mean_is_handled():
@@ -282,10 +282,19 @@ def test_detect_drift_uses_reference_and_live_data(
         }
     )
 
+    # 4.8A:
+    # Production observations must contain timestamps
+    # because drift detection now operates on a recent
+    # observation window.
     live = pd.DataFrame(
         {
-            "price": [150, 150, 150],
-            "promo": [1, 1, 1],
+            "timestamp": pd.date_range(
+                "2024-01-01",
+                periods=10,
+                freq="h",
+            ),
+            "price": [150] * 10,
+            "promo": [1] * 10,
         }
     )
 
@@ -336,6 +345,16 @@ def test_detect_drift_uses_reference_and_live_data(
         is True
     )
 
+    assert (
+        report["_summary"]["observation_count"]
+        == 10
+    )
+
+    assert (
+        report["_summary"]["observation_window_size"]
+        == 50
+    )
+
     assert report_path.exists()
 
 
@@ -366,12 +385,13 @@ def test_detect_drift_rejects_non_numeric_feature(
 
     live = pd.DataFrame(
         {
-            "price": [
-                150,
-                150,
-                150,
-            ],
-            "promo": [1, 1, 1],
+            "timestamp": pd.date_range(
+                "2024-01-01",
+                periods=10,
+                freq="h",
+            ),
+            "price": [150] * 10,
+            "promo": [1] * 10,
         }
     )
 
@@ -429,12 +449,24 @@ def test_detect_drift_rejects_null_feature(
 
     live = pd.DataFrame(
         {
+            "timestamp": pd.date_range(
+                "2024-01-01",
+                periods=10,
+                freq="h",
+            ),
             "price": [
                 150,
                 None,
                 150,
+                150,
+                150,
+                150,
+                150,
+                150,
+                150,
+                150,
             ],
-            "promo": [1, 1, 1],
+            "promo": [1] * 10,
         }
     )
 
@@ -509,3 +541,204 @@ def test_detect_drift_fails_when_live_data_is_missing(
         detect_drift(
             save=False,
         )
+
+
+# ============================================================
+# OBSERVATION WINDOW TESTS
+# ============================================================
+
+def test_observation_window_selects_latest_records():
+    timestamps = pd.date_range(
+        "2024-01-01",
+        periods=60,
+        freq="h",
+    )
+
+    live = pd.DataFrame(
+        {
+            "timestamp": timestamps,
+            "price": range(60),
+            "promo": [0] * 60,
+        }
+    )
+
+    window = drift_detection._select_observation_window(
+        live
+    )
+
+    assert len(window) == (
+        drift_detection.OBSERVATION_WINDOW_SIZE
+    )
+
+    assert (
+        window["timestamp"].min()
+        == pd.Timestamp(
+            "2024-01-01 10:00:00",
+            tz="UTC",
+        )
+    )
+
+    assert (
+        window["timestamp"].max()
+        == pd.Timestamp(
+            "2024-01-03 11:00:00",
+            tz="UTC",
+        )
+    )
+
+
+def test_observation_window_orders_by_timestamp():
+    timestamps = pd.date_range(
+        "2024-01-01",
+        periods=10,
+        freq="h",
+    )
+
+    live = pd.DataFrame(
+        {
+            "timestamp": list(
+                reversed(timestamps)
+            ),
+            "price": [100] * 10,
+            "promo": [0] * 10,
+        }
+    )
+
+    window = drift_detection._select_observation_window(
+        live
+    )
+
+    assert (
+        window["timestamp"]
+        .is_monotonic_increasing
+    )
+
+
+def test_observation_window_rejects_insufficient_data():
+    timestamps = pd.date_range(
+        "2024-01-01",
+        periods=9,
+        freq="h",
+    )
+
+    live = pd.DataFrame(
+        {
+            "timestamp": timestamps,
+            "price": [100] * 9,
+            "promo": [0] * 9,
+        }
+    )
+
+    with pytest.raises(
+        ValueError,
+        match="Insufficient live observations",
+    ):
+        drift_detection._select_observation_window(
+            live
+        )
+
+
+def test_observation_window_rejects_invalid_timestamp():
+    live = pd.DataFrame(
+        {
+            "timestamp": [
+                "2024-01-01T00:00:00Z",
+                "invalid-timestamp",
+            ],
+            "price": [100, 100],
+            "promo": [0, 0],
+        }
+    )
+
+    with pytest.raises(
+        ValueError,
+        match="invalid.*timestamp",
+    ):
+        drift_detection._select_observation_window(
+            live
+        )
+
+
+def test_detect_drift_uses_only_recent_observation_window(
+    tmp_path,
+    monkeypatch,
+):
+    reference_path = (
+        tmp_path /
+        "reference.csv"
+    )
+
+    live_path = (
+        tmp_path /
+        "live.csv"
+    )
+
+    reference = pd.DataFrame(
+        {
+            "price": [100, 100, 100],
+            "promo": [0, 0, 0],
+        }
+    )
+
+    timestamps = pd.date_range(
+        "2024-01-01",
+        periods=60,
+        freq="h",
+    )
+
+    live = pd.DataFrame(
+        {
+            "timestamp": timestamps,
+            "price": (
+                [100] * 10
+                + [120] * 50
+            ),
+            "promo": [0] * 60,
+        }
+    )
+
+    reference.to_csv(
+        reference_path,
+        index=False,
+    )
+
+    live.to_csv(
+        live_path,
+        index=False,
+    )
+
+    monkeypatch.setattr(
+        drift_detection,
+        "REFERENCE_DATA_PATH",
+        reference_path,
+    )
+
+    monkeypatch.setattr(
+        drift_detection,
+        "LIVE_DATA_PATH",
+        live_path,
+    )
+
+    report = drift_detection.detect_drift(
+        save=False,
+    )
+
+    assert (
+        report["price"]["live_mean"]
+        == pytest.approx(120.0)
+    )
+
+    assert (
+        report["price"]["drift_detected"]
+        is True
+    )
+
+    assert (
+        report["_summary"]["observation_count"]
+        == 50
+    )
+
+    assert (
+        report["_summary"]["observation_window_size"]
+        == 50
+    )

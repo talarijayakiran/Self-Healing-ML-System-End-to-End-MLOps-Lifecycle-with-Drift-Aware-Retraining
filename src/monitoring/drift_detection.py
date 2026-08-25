@@ -5,8 +5,8 @@ Responsibilities
 ----------------
 1. Load reference training data.
 2. Load observed production prediction data.
-3. Validate monitored numerical features.
-4. Compare configured numerical features.
+3. Select a recent observation window.
+4. Validate monitored numerical features.
 5. Calculate drift statistics.
 6. Produce a structured drift report.
 7. Persist the report for downstream orchestration.
@@ -48,10 +48,21 @@ MONITORED_FEATURES = [
     "promo",
 ]
 
+# ============================================================
+# OBSERVATION WINDOW
+# ============================================================
+
+OBSERVATION_WINDOW_SIZE = 50
+
+MIN_OBSERVATIONS = 10
+
+TIMESTAMP_COLUMN = "timestamp"
+
 
 # ============================================================
 # RESULT CONTRACT
 # ============================================================
+
 
 @dataclass(frozen=True)
 class FeatureDriftResult:
@@ -69,6 +80,7 @@ class FeatureDriftResult:
 # ============================================================
 # DATA LOADING
 # ============================================================
+
 
 def _load_reference_data() -> pd.DataFrame:
     """
@@ -103,8 +115,82 @@ def _load_live_data() -> pd.DataFrame:
 
 
 # ============================================================
-# FEATURE VALIDATION
+# OBSERVATION WINDOW
 # ============================================================
+
+
+def _select_observation_window(
+    live_df: pd.DataFrame,
+) -> pd.DataFrame:
+    """
+    Select the most recent production observations.
+
+    The complete prediction history is retained on disk, but
+    drift detection operates only on the most recent configured
+    observation window.
+
+    Requirements
+    ------------
+    1. Timestamp column must exist.
+    2. Timestamps must be parseable.
+    3. At least MIN_OBSERVATIONS must be available.
+    4. The newest OBSERVATION_WINDOW_SIZE observations are used.
+
+    Returns
+    -------
+    pd.DataFrame
+        Chronologically ordered recent observation window.
+    """
+
+    if TIMESTAMP_COLUMN not in live_df.columns:
+        raise ValueError(
+            f"Live prediction data must contain "
+            f"'{TIMESTAMP_COLUMN}' column."
+        )
+
+    if live_df.empty:
+        raise ValueError(
+            "Live prediction dataset is empty."
+        )
+
+    window = live_df.copy()
+
+    window[TIMESTAMP_COLUMN] = pd.to_datetime(
+        window[TIMESTAMP_COLUMN],
+        errors="coerce",
+        utc=True,
+    )
+
+    if window[TIMESTAMP_COLUMN].isnull().any():
+        raise ValueError(
+            f"Live prediction data contains invalid "
+            f"'{TIMESTAMP_COLUMN}' values."
+        )
+
+    if len(window) < MIN_OBSERVATIONS:
+        raise ValueError(
+            "Insufficient live observations for drift "
+            f"detection. Required at least "
+            f"{MIN_OBSERVATIONS}, found {len(window)}."
+        )
+
+    window = (
+        window
+        .sort_values(
+            TIMESTAMP_COLUMN,
+            ascending=True,
+        )
+        .tail(OBSERVATION_WINDOW_SIZE)
+        .reset_index(drop=True)
+    )
+
+    return window
+
+
+# ============================================================
+# NUMERICAL VALIDATION
+# ============================================================
+
 
 def _validate_numeric_feature(
     df: pd.DataFrame,
@@ -115,6 +201,12 @@ def _validate_numeric_feature(
     Validate that a monitored feature is numeric and contains
     no null values.
     """
+
+    if feature not in df.columns:
+        raise ValueError(
+            f"Feature '{feature}' is missing "
+            f"from {dataset_name} data."
+        )
 
     if not pd.api.types.is_numeric_dtype(
         df[feature]
@@ -134,6 +226,7 @@ def _validate_numeric_feature(
 # ============================================================
 # DRIFT CALCULATION
 # ============================================================
+
 
 def _calculate_drift_ratio(
     reference_mean: float,
@@ -182,7 +275,6 @@ def _calculate_feature_drift(
         live_mean,
     )
 
-    # Threshold is inclusive.
     drift_detected = (
         drift_ratio >= DRIFT_THRESHOLD
     )
@@ -200,13 +292,14 @@ def _calculate_feature_drift(
 # DRIFT DETECTION
 # ============================================================
 
+
 def detect_drift(
     *,
     save: bool = True,
 ) -> dict:
     """
     Detect feature drift between reference training data
-    and observed production prediction data.
+    and the recent production observation window.
 
     Returns
     -------
@@ -219,46 +312,30 @@ def detect_drift(
         If reference or live data is unavailable.
 
     ValueError
-        If monitored features are missing, non-numeric,
-        contain null values, or live data is empty.
+        If monitored features are missing, invalid, non-numeric,
+        contain null values, timestamps are invalid, or there
+        are insufficient live observations.
     """
 
     reference_df = _load_reference_data()
 
     live_df = _load_live_data()
 
-    if live_df.empty:
-        raise ValueError(
-            "Live prediction dataset is empty."
-        )
+    # --------------------------------------------------------
+    # SELECT RECENT PRODUCTION WINDOW
+    # --------------------------------------------------------
+
+    live_window = _select_observation_window(
+        live_df
+    )
 
     report: dict[str, dict] = {}
 
+    # --------------------------------------------------------
+    # VALIDATE AND CALCULATE DRIFT
+    # --------------------------------------------------------
+
     for feature in MONITORED_FEATURES:
-
-        # ----------------------------------------------------
-        # REFERENCE FEATURE CONTRACT
-        # ----------------------------------------------------
-
-        if feature not in reference_df.columns:
-            raise ValueError(
-                f"Feature '{feature}' is missing "
-                "from reference data."
-            )
-
-        # ----------------------------------------------------
-        # LIVE FEATURE CONTRACT
-        # ----------------------------------------------------
-
-        if feature not in live_df.columns:
-            raise ValueError(
-                f"Feature '{feature}' is missing "
-                "from live prediction data."
-            )
-
-        # ----------------------------------------------------
-        # REFERENCE VALIDATION
-        # ----------------------------------------------------
 
         _validate_numeric_feature(
             reference_df,
@@ -266,32 +343,24 @@ def detect_drift(
             "reference",
         )
 
-        # ----------------------------------------------------
-        # LIVE VALIDATION
-        # ----------------------------------------------------
-
         _validate_numeric_feature(
-            live_df,
+            live_window,
             feature,
             "live",
         )
 
-        # ----------------------------------------------------
-        # DRIFT CALCULATION
-        # ----------------------------------------------------
-
         result = _calculate_feature_drift(
             reference=reference_df[feature],
-            live=live_df[feature],
+            live=live_window[feature],
         )
 
         report[feature] = asdict(
             result
         )
 
-    # ========================================================
+    # --------------------------------------------------------
     # SUMMARY
-    # ========================================================
+    # --------------------------------------------------------
 
     drift_detected = any(
         feature_report["drift_detected"]
@@ -303,11 +372,31 @@ def detect_drift(
         "monitored_features": len(
             MONITORED_FEATURES
         ),
+        "observation_count": len(
+            live_window
+        ),
+        "observation_window_size": (
+            OBSERVATION_WINDOW_SIZE
+        ),
+        "latest_observation": (
+            live_window[
+                TIMESTAMP_COLUMN
+            ]
+            .max()
+            .isoformat()
+        ),
+        "earliest_observation": (
+            live_window[
+                TIMESTAMP_COLUMN
+            ]
+            .min()
+            .isoformat()
+        ),
     }
 
-    # ========================================================
+    # --------------------------------------------------------
     # PERSIST REPORT
-    # ========================================================
+    # --------------------------------------------------------
 
     if save:
 
