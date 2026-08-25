@@ -1,5 +1,3 @@
-# src/evaluation/quality_gate.py
-
 """
 Model quality gate for the retail demand forecasting pipeline.
 
@@ -8,22 +6,41 @@ trained candidate model satisfies the minimum evaluation policy
 required for registration.
 
 This module deliberately contains no training or MLflow logic.
-It only evaluates model metrics against explicit quality criteria.
+It only evaluates model metrics against the runtime quality policy.
+
+Runtime configuration is owned by src.config.settings.
 """
 
+from __future__ import annotations
+
+import math
 from dataclasses import dataclass
 
-
-# ------------------------------------------------------------------
-# QUALITY POLICY
-# ------------------------------------------------------------------
-
-DEFAULT_MAX_RMSE = 3.0
+from src.config import settings as settings_module
 
 
-# ------------------------------------------------------------------
+# ============================================================
+# BACKWARD-COMPATIBILITY CONSTANT
+# ============================================================
+
+# Runtime configuration is the source of truth.
+#
+# This constant is retained so existing callers/tests that import
+# DEFAULT_MAX_RMSE do not break.
+#
+# New application code should use:
+#
+#     settings_module.settings.max_rmse
+#
+# instead of defining another hard-coded threshold.
+DEFAULT_MAX_RMSE = (
+    settings_module.settings.max_rmse
+)
+
+
+# ============================================================
 # QUALITY GATE RESULT
-# ------------------------------------------------------------------
+# ============================================================
 
 
 @dataclass(frozen=True)
@@ -38,56 +55,142 @@ class QualityGateResult:
     reason: str
 
 
-# ------------------------------------------------------------------
+# ============================================================
+# VALIDATION
+# ============================================================
+
+
+def _validate_rmse(
+    rmse: float,
+) -> None:
+    """
+    Validate the candidate model RMSE.
+
+    RMSE must be:
+
+    - finite
+    - greater than or equal to zero
+    """
+
+    if not math.isfinite(rmse):
+        raise ValueError(
+            "RMSE must be finite."
+        )
+
+    if rmse < 0:
+        raise ValueError(
+            "RMSE cannot be negative."
+        )
+
+
+def _validate_max_rmse(
+    max_rmse: float,
+) -> None:
+    """
+    Validate the maximum allowed RMSE threshold.
+
+    The threshold must be:
+
+    - finite
+    - greater than zero
+    """
+
+    if not math.isfinite(max_rmse):
+        raise ValueError(
+            "Maximum RMSE threshold must be finite."
+        )
+
+    if max_rmse <= 0:
+        raise ValueError(
+            "Maximum RMSE threshold must be greater than 0."
+        )
+
+
+# ============================================================
 # QUALITY GATE
-# ------------------------------------------------------------------
+# ============================================================
 
 
 def evaluate_model_quality(
     rmse: float,
-    max_rmse: float = DEFAULT_MAX_RMSE,
+    max_rmse: float | None = None,
 ) -> QualityGateResult:
     """
     Evaluate whether a candidate model satisfies the RMSE policy.
 
-    Args:
-        rmse:
-            Validation RMSE produced by the candidate model.
+    Parameters
+    ----------
+    rmse:
+        Validation RMSE produced by the candidate model.
 
-        max_rmse:
-            Maximum acceptable RMSE.
+    max_rmse:
+        Optional maximum acceptable RMSE.
 
-    Returns:
-        QualityGateResult describing whether the candidate passed.
+        When omitted, the threshold is resolved from the
+        centralized runtime configuration:
 
-    Raises:
-        ValueError:
-            If RMSE or the configured threshold is invalid.
+            settings_module.settings.max_rmse
+
+        Explicit values are supported for deterministic unit
+        tests and controlled policy overrides.
+
+    Returns
+    -------
+    QualityGateResult
+        Structured quality-gate decision.
+
+    Raises
+    ------
+    ValueError
+        If RMSE or the configured threshold is invalid.
     """
 
-    if rmse < 0:
-        raise ValueError("RMSE cannot be negative.")
+    # --------------------------------------------------------
+    # RESOLVE RUNTIME POLICY
+    # --------------------------------------------------------
 
-    if max_rmse <= 0:
-        raise ValueError("Maximum RMSE threshold must be greater than 0.")
+    effective_max_rmse = (
+        settings_module.settings.max_rmse
+        if max_rmse is None
+        else max_rmse
+    )
 
-    if rmse <= max_rmse:
+    # --------------------------------------------------------
+    # VALIDATE INPUTS
+    # --------------------------------------------------------
+
+    _validate_rmse(
+        rmse
+    )
+
+    _validate_max_rmse(
+        effective_max_rmse
+    )
+
+    # --------------------------------------------------------
+    # QUALITY DECISION
+    # --------------------------------------------------------
+
+    if rmse <= effective_max_rmse:
+
         return QualityGateResult(
             passed=True,
             rmse=rmse,
-            max_rmse=max_rmse,
+            max_rmse=effective_max_rmse,
             reason=(
                 f"Candidate passed quality gate: "
-                f"RMSE {rmse:.4f} <= threshold {max_rmse:.4f}."
+                f"RMSE {rmse:.4f} <= threshold "
+                f"{effective_max_rmse:.4f}."
             ),
         )
 
     return QualityGateResult(
         passed=False,
         rmse=rmse,
-        max_rmse=max_rmse,
+        max_rmse=effective_max_rmse,
         reason=(
             f"Candidate failed quality gate: "
-            f"RMSE {rmse:.4f} > threshold {max_rmse:.4f}."
+            f"RMSE {rmse:.4f} > threshold "
+            f"{effective_max_rmse:.4f}."
         ),
     )
