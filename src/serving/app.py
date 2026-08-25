@@ -31,13 +31,68 @@ from src.serving.schemas import (
 
 MODEL_NAME = "retail_demand_forecaster"
 
-# Single source of truth for production model selection.
+# ------------------------------------------------------------
+# MLflow production alias
+# ------------------------------------------------------------
 #
 # Training creates candidate models.
 # Quality gate determines eligibility.
-# Promotion assigns this alias.
-# Serving consumes this alias.
+# Promotion assigns the production alias.
+#
+# When MODEL_SOURCE=mlflow:
+#
+#     candidate
+#         ↓
+#     quality gate
+#         ↓
+#     promotion
+#         ↓
+#     production alias
+#         ↓
+#     serving
+#
 PRODUCTION_ALIAS = "production"
+
+
+# ------------------------------------------------------------
+# Serving model source
+# ------------------------------------------------------------
+#
+# packaged:
+#     Load immutable model artifact bundled inside Docker.
+#
+# mlflow:
+#     Resolve the MLflow production alias and load the model
+#     from the configured MLflow artifact store.
+#
+# Docker defaults to "packaged" because the local MLflow
+# artifact store contains Windows filesystem paths that do not
+# exist inside the Linux container.
+#
+MODEL_SOURCE = os.getenv(
+    "MODEL_SOURCE",
+    "packaged",
+).lower()
+
+
+# ------------------------------------------------------------
+# Packaged model configuration
+# ------------------------------------------------------------
+
+PACKAGED_MODEL_PATH = os.getenv(
+    "PACKAGED_MODEL_PATH",
+    "exported_model",
+)
+
+PACKAGED_MODEL_VERSION = os.getenv(
+    "PACKAGED_MODEL_VERSION",
+    "7",
+)
+
+
+# ------------------------------------------------------------
+# Test mode
+# ------------------------------------------------------------
 
 TEST_MODE = (
     os.getenv(
@@ -53,6 +108,7 @@ TEST_MODE = (
 # ============================================================
 
 model = None
+
 model_version = None
 
 model_lock = Lock()
@@ -66,43 +122,36 @@ mlflow_client = MlflowClient()
 
 def load_model(force_reload: bool = False):
     """
-    Load the model currently assigned to the MLflow production
-    alias.
+    Load the production model.
 
-    Production model selection is intentionally controlled by
-    the model promotion boundary.
+    Supported serving modes:
 
-    Lifecycle:
+    1. packaged
+       Load the immutable model artifact bundled into the
+       application container.
 
-        candidate
-            ↓
-        quality gate
-            ↓
-        promotion
-            ↓
-        production alias
-            ↓
-        serving
+    2. mlflow
+       Resolve the model assigned to the MLflow production
+       alias and load it from the MLflow artifact store.
 
-    The serving layer MUST NOT select arbitrary latest model
-    versions.
+    Production model selection must never use an arbitrary
+    "latest" model version.
 
     Parameters
     ----------
     force_reload:
-        Force a model reload even if the production alias still
-        points to the currently loaded version.
+        Force a model reload even when the currently loaded
+        model is already the desired version.
 
     Returns
     -------
     object | None
-        Loaded MLflow pyfunc model, or None in TEST_MODE.
+        Loaded MLflow PyFunc model, or None in TEST_MODE.
 
     Raises
     ------
     RuntimeError
-        If the production alias cannot be resolved or the
-        production model cannot be loaded.
+        If model resolution or model loading fails.
     """
 
     global model
@@ -113,6 +162,7 @@ def load_model(force_reload: bool = False):
     # --------------------------------------------------------
 
     if TEST_MODE:
+
         print(
             "TEST_MODE enabled - model loading skipped"
         )
@@ -120,8 +170,76 @@ def load_model(force_reload: bool = False):
         return None
 
     # --------------------------------------------------------
-    # MODEL LOCK
+    # VALIDATE MODEL SOURCE
     # --------------------------------------------------------
+
+    if MODEL_SOURCE not in {
+        "packaged",
+        "mlflow",
+    }:
+
+        raise RuntimeError(
+            "Invalid MODEL_SOURCE. "
+            "Expected 'packaged' or 'mlflow', "
+            f"got '{MODEL_SOURCE}'."
+        )
+
+    # ========================================================
+    # PACKAGED MODEL MODE
+    # ========================================================
+
+    if MODEL_SOURCE == "packaged":
+
+        with model_lock:
+
+            # ------------------------------------------------
+            # HOT-RELOAD CHECK
+            # ------------------------------------------------
+
+            if (
+                model is not None
+                and model_version == PACKAGED_MODEL_VERSION
+                and not force_reload
+            ):
+
+                return model
+
+            # ------------------------------------------------
+            # LOAD PACKAGED MODEL
+            # ------------------------------------------------
+
+            try:
+
+                loaded_model = mlflow.pyfunc.load_model(
+                    PACKAGED_MODEL_PATH
+                )
+
+            except Exception as exc:
+
+                raise RuntimeError(
+                    "Failed to load packaged production model. "
+                    f"path='{PACKAGED_MODEL_PATH}'."
+                ) from exc
+
+            # ------------------------------------------------
+            # UPDATE MODEL STATE
+            # ------------------------------------------------
+
+            model = loaded_model
+
+            model_version = PACKAGED_MODEL_VERSION
+
+            print(
+                "Loaded packaged production model: "
+                f"path='{PACKAGED_MODEL_PATH}', "
+                f"version='{model_version}'"
+            )
+
+            return model
+
+    # ========================================================
+    # MLFLOW REGISTRY MODE
+    # ========================================================
 
     with model_lock:
 
@@ -130,6 +248,7 @@ def load_model(force_reload: bool = False):
         # ----------------------------------------------------
 
         try:
+
             production_version = (
                 mlflow_client.get_model_version_by_alias(
                     MODEL_NAME,
@@ -138,6 +257,7 @@ def load_model(force_reload: bool = False):
             )
 
         except Exception as exc:
+
             raise RuntimeError(
                 "Production model alias could not be resolved. "
                 f"Model='{MODEL_NAME}', "
@@ -161,6 +281,7 @@ def load_model(force_reload: bool = False):
             and model_version == resolved_version
             and not force_reload
         ):
+
             return model
 
         # ----------------------------------------------------
@@ -176,11 +297,13 @@ def load_model(force_reload: bool = False):
         # ----------------------------------------------------
 
         try:
+
             loaded_model = mlflow.pyfunc.load_model(
                 model_uri
             )
 
         except Exception as exc:
+
             raise RuntimeError(
                 "Failed to load production model. "
                 f"Model='{MODEL_NAME}', "
@@ -192,10 +315,11 @@ def load_model(force_reload: bool = False):
         # ----------------------------------------------------
 
         model = loaded_model
+
         model_version = resolved_version
 
         print(
-            "Loaded production model: "
+            "Loaded MLflow production model: "
             f"{MODEL_NAME}:{model_version}"
         )
 
@@ -213,7 +337,13 @@ async def lifespan(app: FastAPI):
         "Starting Self-Healing ML Inference API..."
     )
 
+    print(
+        "Model serving configuration: "
+        f"source='{MODEL_SOURCE}'"
+    )
+
     try:
+
         load_model()
 
         print(
@@ -228,14 +358,19 @@ async def lifespan(app: FastAPI):
             f"{exc}"
         )
 
+        # ----------------------------------------------------
+        # IMPORTANT
+        # ----------------------------------------------------
+        #
         # Do not terminate the process.
         #
-        # /ready will return HTTP 503.
+        # /ready returns HTTP 503 when the model is unavailable.
         #
         # This allows Kubernetes, AWS load balancers,
-        # container orchestration and health-check systems
-        # to correctly determine that this instance is not
-        # ready to receive traffic.
+        # container orchestration systems and health-check
+        # mechanisms to correctly determine that this instance
+        # is not ready to receive traffic.
+        #
 
     yield
 
@@ -380,12 +515,14 @@ def build_feature_vector(
     dt = input_data.date
 
     if "day" in X.columns:
+
         X.at[
             0,
             "day",
         ] = dt.day
 
     if "month" in X.columns:
+
         X.at[
             0,
             "month",
@@ -396,12 +533,14 @@ def build_feature_vector(
     # --------------------------------------------------------
 
     if "price" in X.columns:
+
         X.at[
             0,
             "price",
         ] = input_data.price
 
     if "promo" in X.columns:
+
         X.at[
             0,
             "promo",
@@ -416,6 +555,7 @@ def build_feature_vector(
     )
 
     if category_column in X.columns:
+
         X.at[
             0,
             category_column,
@@ -430,6 +570,7 @@ def build_feature_vector(
     )
 
     if region_column in X.columns:
+
         X.at[
             0,
             region_column,
@@ -465,6 +606,7 @@ def predict(
         # ====================================================
 
         try:
+
             current_model = load_model()
 
         except Exception as exc:

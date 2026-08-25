@@ -1,3 +1,4 @@
+from pathlib import Path
 from unittest.mock import Mock
 
 import pytest
@@ -5,34 +6,22 @@ import pytest
 import src.serving.app as serving
 
 
-def test_load_model_uses_production_alias(monkeypatch):
-    client = Mock()
-
-    production_version = Mock()
-    production_version.version = "7"
-
-    client.get_model_version_by_alias.return_value = (
-        production_version
-    )
+def test_load_model_uses_packaged_model(monkeypatch):
+    """
+    Production serving must load the immutable packaged model
+    shipped inside the container.
+    """
 
     loaded_model = Mock()
 
-    load_model_calls = []
-
-    def fake_load_model(uri):
-        load_model_calls.append(uri)
-        return loaded_model
-
-    monkeypatch.setattr(
-        serving,
-        "mlflow_client",
-        client,
+    load_model_mock = Mock(
+        return_value=loaded_model
     )
 
     monkeypatch.setattr(
         serving.mlflow.pyfunc,
         "load_model",
-        fake_load_model,
+        load_model_mock,
     )
 
     monkeypatch.setattr(
@@ -57,32 +46,37 @@ def test_load_model_uses_production_alias(monkeypatch):
 
     assert result is loaded_model
 
-    client.get_model_version_by_alias.assert_called_once_with(
-        serving.MODEL_NAME,
-        serving.PRODUCTION_ALIAS,
+    load_model_mock.assert_called_once()
+
+    model_uri = load_model_mock.call_args.args[0]
+
+    assert str(model_uri).endswith(
+        "exported_model"
     )
 
-    assert load_model_calls == [
-        f"models:/{serving.MODEL_NAME}@"
-        f"{serving.PRODUCTION_ALIAS}"
-    ]
+    assert serving.model is loaded_model
 
     assert serving.model_version == "7"
 
 
-def test_load_model_fails_when_production_alias_missing(
+def test_load_model_fails_when_packaged_model_missing(
     monkeypatch,
 ):
-    client = Mock()
+    """
+    Serving must fail explicitly if the packaged production
+    model cannot be loaded.
+    """
 
-    client.get_model_version_by_alias.side_effect = (
-        RuntimeError("alias not found")
+    load_model_mock = Mock(
+        side_effect=OSError(
+            "No such file or directory: exported_model"
+        )
     )
 
     monkeypatch.setattr(
-        serving,
-        "mlflow_client",
-        client,
+        serving.mlflow.pyfunc,
+        "load_model",
+        load_model_mock,
     )
 
     monkeypatch.setattr(
@@ -105,93 +99,28 @@ def test_load_model_fails_when_production_alias_missing(
 
     with pytest.raises(
         RuntimeError,
-        match="production",
+        match="Failed to load packaged production model",
     ):
         serving.load_model()
 
 
-def test_load_model_reuses_same_production_version(
+def test_load_model_reuses_existing_packaged_model(
     monkeypatch,
 ):
-    client = Mock()
-
-    production_version = Mock()
-    production_version.version = "7"
-
-    client.get_model_version_by_alias.return_value = (
-        production_version
-    )
+    """
+    If the packaged model is already loaded and its version
+    has not changed, serving should reuse the existing model
+    instead of loading it again.
+    """
 
     existing_model = Mock()
 
-    monkeypatch.setattr(
-        serving,
-        "mlflow_client",
-        client,
-    )
-
-    monkeypatch.setattr(
-        serving,
-        "model",
-        existing_model,
-    )
-
-    monkeypatch.setattr(
-        serving,
-        "model_version",
-        "7",
-    )
-
-    monkeypatch.setattr(
-        serving,
-        "TEST_MODE",
-        False,
-    )
-
-    result = serving.load_model()
-
-    assert result is existing_model
-
-    serving.mlflow.pyfunc.load_model.assert_not_called()
-
-
-def test_load_model_reuses_same_production_version(
-    monkeypatch,
-):
-    client = Mock()
-
-    production_version = Mock()
-    production_version.version = "7"
-
-    client.get_model_version_by_alias.return_value = (
-        production_version
-    )
-
-    existing_model = Mock()
     load_model_mock = Mock()
 
     monkeypatch.setattr(
         serving,
-        "mlflow_client",
-        client,
-    )
-
-    monkeypatch.setattr(
-        serving,
-        "model",
-        existing_model,
-    )
-
-    monkeypatch.setattr(
-        serving,
-        "model_version",
-        "7",
-    )
-
-    monkeypatch.setattr(
-        serving,
-        "TEST_MODE",
-        False,
+        "mlflow",
+        serving.mlflow,
     )
 
     monkeypatch.setattr(
@@ -200,7 +129,118 @@ def test_load_model_reuses_same_production_version(
         load_model_mock,
     )
 
+    monkeypatch.setattr(
+        serving,
+        "model",
+        existing_model,
+    )
+
+    monkeypatch.setattr(
+        serving,
+        "model_version",
+        "7",
+    )
+
+    monkeypatch.setattr(
+        serving,
+        "TEST_MODE",
+        False,
+    )
+
     result = serving.load_model()
 
     assert result is existing_model
+
+    load_model_mock.assert_not_called()
+
+
+def test_load_model_force_reload(
+    monkeypatch,
+):
+    """
+    force_reload=True must reload the packaged model even
+    when the current model is already loaded.
+    """
+
+    existing_model = Mock()
+    reloaded_model = Mock()
+
+    load_model_mock = Mock(
+        return_value=reloaded_model
+    )
+
+    monkeypatch.setattr(
+        serving.mlflow.pyfunc,
+        "load_model",
+        load_model_mock,
+    )
+
+    monkeypatch.setattr(
+        serving,
+        "model",
+        existing_model,
+    )
+
+    monkeypatch.setattr(
+        serving,
+        "model_version",
+        "7",
+    )
+
+    monkeypatch.setattr(
+        serving,
+        "TEST_MODE",
+        False,
+    )
+
+    result = serving.load_model(
+        force_reload=True
+    )
+
+    assert result is reloaded_model
+
+    assert serving.model is reloaded_model
+
+    assert serving.model_version == "7"
+
+    load_model_mock.assert_called_once()
+
+
+def test_load_model_skipped_in_test_mode(
+    monkeypatch,
+):
+    """
+    TEST_MODE must prevent production model loading.
+    """
+
+    load_model_mock = Mock()
+
+    monkeypatch.setattr(
+        serving.mlflow.pyfunc,
+        "load_model",
+        load_model_mock,
+    )
+
+    monkeypatch.setattr(
+        serving,
+        "TEST_MODE",
+        True,
+    )
+
+    monkeypatch.setattr(
+        serving,
+        "model",
+        None,
+    )
+
+    monkeypatch.setattr(
+        serving,
+        "model_version",
+        None,
+    )
+
+    result = serving.load_model()
+
+    assert result is None
+
     load_model_mock.assert_not_called()
