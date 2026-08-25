@@ -1,8 +1,10 @@
 import json
+from dataclasses import replace
 
 import pandas as pd
 import pytest
 
+from src.config import settings as settings_module
 from src.monitoring import drift_detection
 from src.monitoring.drift_detection import (
     _calculate_drift_ratio,
@@ -12,6 +14,62 @@ from src.monitoring.prediction_logger import (
     PREDICTION_COLUMNS,
     log_prediction,
 )
+
+
+# ============================================================
+# TEST RUNTIME CONFIGURATION HELPER
+# ============================================================
+
+
+def _configure_drift_settings(
+    monkeypatch,
+    *,
+    reference_data_path,
+    prediction_log_path,
+    drift_report_path,
+    drift_threshold=None,
+    observation_window_size=None,
+    min_observations=None,
+):
+    """
+    Replace the application-wide Settings object with a
+    test-specific immutable configuration.
+
+    Settings is a frozen dataclass, so individual fields cannot
+    be mutated directly. dataclasses.replace() creates a new
+    validated configuration object while preserving all
+    unrelated runtime settings.
+    """
+
+    current = settings_module.settings
+
+    overrides = {
+        "reference_data_path": reference_data_path,
+        "prediction_log_path": prediction_log_path,
+        "drift_report_path": drift_report_path,
+    }
+
+    if drift_threshold is not None:
+        overrides["drift_threshold"] = drift_threshold
+
+    if observation_window_size is not None:
+        overrides[
+            "observation_window_size"
+        ] = observation_window_size
+
+    if min_observations is not None:
+        overrides[
+            "min_observations"
+        ] = min_observations
+
+    monkeypatch.setattr(
+        settings_module,
+        "settings",
+        replace(
+            current,
+            **overrides,
+        ),
+    )
 
 
 # ============================================================
@@ -60,6 +118,83 @@ def test_drift_at_threshold_is_detected():
 
     assert result.drift_ratio == pytest.approx(
         0.20
+    )
+
+    assert result.threshold == pytest.approx(
+        settings_module.settings.drift_threshold
+    )
+
+    assert result.drift_detected is True
+
+
+# ============================================================
+# RUNTIME DRIFT THRESHOLD TESTS
+# ============================================================
+
+
+def test_drift_detection_uses_runtime_drift_threshold(
+    monkeypatch,
+):
+    current = settings_module.settings
+
+    monkeypatch.setattr(
+        settings_module,
+        "settings",
+        replace(
+            current,
+            drift_threshold=0.30,
+        ),
+    )
+
+    result = drift_detection._calculate_feature_drift(
+        reference=pd.Series(
+            [100.0, 100.0]
+        ),
+        live=pd.Series(
+            [120.0, 120.0]
+        ),
+    )
+
+    assert result.drift_ratio == pytest.approx(
+        0.20
+    )
+
+    assert result.threshold == pytest.approx(
+        0.30
+    )
+
+    assert result.drift_detected is False
+
+
+def test_drift_detection_rejects_using_runtime_threshold(
+    monkeypatch,
+):
+    current = settings_module.settings
+
+    monkeypatch.setattr(
+        settings_module,
+        "settings",
+        replace(
+            current,
+            drift_threshold=0.10,
+        ),
+    )
+
+    result = drift_detection._calculate_feature_drift(
+        reference=pd.Series(
+            [100.0, 100.0]
+        ),
+        live=pd.Series(
+            [120.0, 120.0]
+        ),
+    )
+
+    assert result.drift_ratio == pytest.approx(
+        0.20
+    )
+
+    assert result.threshold == pytest.approx(
+        0.10
     )
 
     assert result.drift_detected is True
@@ -261,7 +396,7 @@ def test_prediction_logger_rejects_missing_category(
 # ============================================================
 
 
-def test_detect_drift_uses_reference_and_live_data(
+def test_detect_drift_uses_runtime_paths(
     tmp_path,
     monkeypatch,
 ):
@@ -310,22 +445,11 @@ def test_detect_drift_uses_reference_and_live_data(
         index=False,
     )
 
-    monkeypatch.setattr(
-        drift_detection,
-        "REFERENCE_DATA_PATH",
-        reference_path,
-    )
-
-    monkeypatch.setattr(
-        drift_detection,
-        "LIVE_DATA_PATH",
-        live_path,
-    )
-
-    monkeypatch.setattr(
-        drift_detection,
-        "DRIFT_REPORT_PATH",
-        report_path,
+    _configure_drift_settings(
+        monkeypatch,
+        reference_data_path=reference_path,
+        prediction_log_path=live_path,
+        drift_report_path=report_path,
     )
 
     report = detect_drift(
@@ -354,12 +478,12 @@ def test_detect_drift_uses_reference_and_live_data(
 
     assert (
         report["_summary"]["observation_window_size"]
-        == 50
+        == settings_module.settings.observation_window_size
     )
 
     assert (
         report["_summary"]["minimum_observations"]
-        == 10
+        == settings_module.settings.min_observations
     )
 
     assert (
@@ -426,22 +550,11 @@ def test_detect_drift_report_contains_observation_metadata(
         index=False,
     )
 
-    monkeypatch.setattr(
-        drift_detection,
-        "REFERENCE_DATA_PATH",
-        reference_path,
-    )
-
-    monkeypatch.setattr(
-        drift_detection,
-        "LIVE_DATA_PATH",
-        live_path,
-    )
-
-    monkeypatch.setattr(
-        drift_detection,
-        "DRIFT_REPORT_PATH",
-        report_path,
+    _configure_drift_settings(
+        monkeypatch,
+        reference_data_path=reference_path,
+        prediction_log_path=live_path,
+        drift_report_path=report_path,
     )
 
     detect_drift(
@@ -463,12 +576,12 @@ def test_detect_drift_report_contains_observation_metadata(
 
     assert (
         summary["observation_window_size"]
-        == 50
+        == settings_module.settings.observation_window_size
     )
 
     assert (
         summary["minimum_observations"]
-        == 10
+        == settings_module.settings.min_observations
     )
 
     assert (
@@ -543,16 +656,14 @@ def test_detect_drift_rejects_non_numeric_feature(
         index=False,
     )
 
-    monkeypatch.setattr(
-        drift_detection,
-        "REFERENCE_DATA_PATH",
-        reference_path,
-    )
-
-    monkeypatch.setattr(
-        drift_detection,
-        "LIVE_DATA_PATH",
-        live_path,
+    _configure_drift_settings(
+        monkeypatch,
+        reference_data_path=reference_path,
+        prediction_log_path=live_path,
+        drift_report_path=(
+            tmp_path /
+            "drift_report.json"
+        ),
     )
 
     with pytest.raises(
@@ -618,16 +729,14 @@ def test_detect_drift_rejects_null_feature(
         index=False,
     )
 
-    monkeypatch.setattr(
-        drift_detection,
-        "REFERENCE_DATA_PATH",
-        reference_path,
-    )
-
-    monkeypatch.setattr(
-        drift_detection,
-        "LIVE_DATA_PATH",
-        live_path,
+    _configure_drift_settings(
+        monkeypatch,
+        reference_data_path=reference_path,
+        prediction_log_path=live_path,
+        drift_report_path=(
+            tmp_path /
+            "drift_report.json"
+        ),
     )
 
     with pytest.raises(
@@ -660,16 +769,17 @@ def test_detect_drift_fails_when_live_data_is_missing(
         index=False,
     )
 
-    monkeypatch.setattr(
-        drift_detection,
-        "REFERENCE_DATA_PATH",
-        reference_path,
-    )
-
-    monkeypatch.setattr(
-        drift_detection,
-        "LIVE_DATA_PATH",
-        tmp_path / "missing.csv",
+    _configure_drift_settings(
+        monkeypatch,
+        reference_data_path=reference_path,
+        prediction_log_path=(
+            tmp_path /
+            "missing.csv"
+        ),
+        drift_report_path=(
+            tmp_path /
+            "drift_report.json"
+        ),
     )
 
     with pytest.raises(
@@ -706,13 +816,21 @@ def test_observation_window_selects_latest_records():
     )
 
     assert len(window) == (
-        drift_detection.OBSERVATION_WINDOW_SIZE
+        settings_module.settings.observation_window_size
     )
+
+    expected_start = (
+        timestamps[
+            -settings_module.settings.observation_window_size
+        ]
+    )
+
+    expected_end = timestamps[-1]
 
     assert (
         window["timestamp"].min()
         == pd.Timestamp(
-            "2024-01-01 10:00:00",
+            expected_start,
             tz="UTC",
         )
     )
@@ -720,7 +838,7 @@ def test_observation_window_selects_latest_records():
     assert (
         window["timestamp"].max()
         == pd.Timestamp(
-            "2024-01-03 11:00:00",
+            expected_end,
             tz="UTC",
         )
     )
@@ -754,17 +872,25 @@ def test_observation_window_orders_by_timestamp():
 
 
 def test_observation_window_rejects_insufficient_data():
+    min_observations = (
+        settings_module.settings.min_observations
+    )
+
     timestamps = pd.date_range(
         "2024-01-01",
-        periods=9,
+        periods=min_observations - 1,
         freq="h",
     )
 
     live = pd.DataFrame(
         {
             "timestamp": timestamps,
-            "price": [100] * 9,
-            "promo": [0] * 9,
+            "price": [100] * (
+                min_observations - 1
+            ),
+            "promo": [0] * (
+                min_observations - 1
+            ),
         }
     )
 
@@ -792,6 +918,102 @@ def test_observation_window_rejects_invalid_timestamp():
     with pytest.raises(
         ValueError,
         match="invalid.*timestamp",
+    ):
+        drift_detection._select_observation_window(
+            live
+        )
+
+
+# ============================================================
+# RUNTIME OBSERVATION WINDOW CONFIGURATION TESTS
+# ============================================================
+
+
+def test_observation_window_uses_runtime_configuration(
+    monkeypatch,
+):
+    current = settings_module.settings
+
+    monkeypatch.setattr(
+        settings_module,
+        "settings",
+        replace(
+            current,
+            observation_window_size=20,
+            min_observations=5,
+        ),
+    )
+
+    timestamps = pd.date_range(
+        "2024-01-01",
+        periods=30,
+        freq="h",
+    )
+
+    live = pd.DataFrame(
+        {
+            "timestamp": timestamps,
+            "price": range(30),
+            "promo": [0] * 30,
+        }
+    )
+
+    window = (
+        drift_detection
+        ._select_observation_window(live)
+    )
+
+    assert len(window) == 20
+
+    assert (
+        window["timestamp"].min()
+        == pd.Timestamp(
+            "2024-01-01 10:00:00",
+            tz="UTC",
+        )
+    )
+
+    assert (
+        window["timestamp"].max()
+        == pd.Timestamp(
+            "2024-01-02 05:00:00",
+            tz="UTC",
+        )
+    )
+
+
+def test_observation_window_uses_runtime_minimum_observations(
+    monkeypatch,
+):
+    current = settings_module.settings
+
+    monkeypatch.setattr(
+        settings_module,
+        "settings",
+        replace(
+            current,
+            observation_window_size=20,
+            min_observations=15,
+        ),
+    )
+
+    timestamps = pd.date_range(
+        "2024-01-01",
+        periods=10,
+        freq="h",
+    )
+
+    live = pd.DataFrame(
+        {
+            "timestamp": timestamps,
+            "price": [100] * 10,
+            "promo": [0] * 10,
+        }
+    )
+
+    with pytest.raises(
+        ValueError,
+        match="Required at least 15",
     ):
         drift_detection._select_observation_window(
             live
@@ -836,12 +1058,12 @@ def test_observation_window_metadata_reports_partial_window():
 
     assert (
         metadata["observation_window_size"]
-        == 50
+        == settings_module.settings.observation_window_size
     )
 
     assert (
         metadata["minimum_observations"]
-        == 10
+        == settings_module.settings.min_observations
     )
 
     assert (
@@ -870,18 +1092,22 @@ def test_observation_window_metadata_reports_partial_window():
 
 
 def test_observation_window_metadata_reports_complete_window():
+    observation_window_size = (
+        settings_module.settings.observation_window_size
+    )
+
     timestamps = pd.date_range(
         "2024-01-01",
-        periods=50,
+        periods=observation_window_size,
         freq="h",
     )
 
     live = pd.DataFrame(
         {
             "timestamp": timestamps,
-            "model_version": ["7"] * 50,
-            "price": [100] * 50,
-            "promo": [0] * 50,
+            "model_version": ["7"] * observation_window_size,
+            "price": [100] * observation_window_size,
+            "promo": [0] * observation_window_size,
         }
     )
 
@@ -897,12 +1123,12 @@ def test_observation_window_metadata_reports_complete_window():
 
     assert (
         metadata["observation_count"]
-        == 50
+        == observation_window_size
     )
 
     assert (
         metadata["observation_window_size"]
-        == 50
+        == observation_window_size
     )
 
     assert (
@@ -917,21 +1143,34 @@ def test_observation_window_metadata_reports_complete_window():
 
 
 def test_observation_window_metadata_tracks_multiple_model_versions():
+    observation_window_size = (
+        settings_module.settings.observation_window_size
+    )
+
     timestamps = pd.date_range(
         "2024-01-01",
-        periods=50,
+        periods=observation_window_size,
         freq="h",
+    )
+
+    first_version_count = (
+        observation_window_size // 2
+    )
+
+    second_version_count = (
+        observation_window_size
+        - first_version_count
     )
 
     live = pd.DataFrame(
         {
             "timestamp": timestamps,
             "model_version": (
-                ["7"] * 20
-                + ["8"] * 30
+                ["7"] * first_version_count
+                + ["8"] * second_version_count
             ),
-            "price": [100] * 50,
-            "promo": [0] * 50,
+            "price": [100] * observation_window_size,
+            "promo": [0] * observation_window_size,
         }
     )
 
@@ -1063,16 +1302,14 @@ def test_detect_drift_uses_only_recent_observation_window(
         index=False,
     )
 
-    monkeypatch.setattr(
-        drift_detection,
-        "REFERENCE_DATA_PATH",
-        reference_path,
-    )
-
-    monkeypatch.setattr(
-        drift_detection,
-        "LIVE_DATA_PATH",
-        live_path,
+    _configure_drift_settings(
+        monkeypatch,
+        reference_data_path=reference_path,
+        prediction_log_path=live_path,
+        drift_report_path=(
+            tmp_path /
+            "drift_report.json"
+        ),
     )
 
     report = drift_detection.detect_drift(
@@ -1091,17 +1328,17 @@ def test_detect_drift_uses_only_recent_observation_window(
 
     assert (
         report["_summary"]["observation_count"]
-        == 50
+        == settings_module.settings.observation_window_size
     )
 
     assert (
         report["_summary"]["observation_window_size"]
-        == 50
+        == settings_module.settings.observation_window_size
     )
 
     assert (
         report["_summary"]["minimum_observations"]
-        == 10
+        == settings_module.settings.min_observations
     )
 
     assert (
@@ -1114,16 +1351,30 @@ def test_detect_drift_uses_only_recent_observation_window(
         == ["8"]
     )
 
+    expected_start = (
+        timestamps[
+            -settings_module.settings.observation_window_size
+        ]
+    )
+
+    expected_end = timestamps[-1]
+
     assert (
         report["_summary"][
             "oldest_observation_timestamp"
         ]
-        == "2024-01-01T10:00:00+00:00"
+        == pd.Timestamp(
+            expected_start,
+            tz="UTC",
+        ).isoformat()
     )
 
     assert (
         report["_summary"][
             "newest_observation_timestamp"
         ]
-        == "2024-01-03T11:00:00+00:00"
+        == pd.Timestamp(
+            expected_end,
+            tz="UTC",
+        ).isoformat()
     )

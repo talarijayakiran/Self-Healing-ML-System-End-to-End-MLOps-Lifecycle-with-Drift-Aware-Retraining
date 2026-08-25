@@ -12,6 +12,10 @@ Responsibilities
 7. Produce a structured drift report.
 8. Persist the report for downstream orchestration.
 
+Runtime configuration
+--------------------
+Runtime configuration is owned by src.config.settings.
+
 This module detects drift only.
 
 It does NOT trigger retraining.
@@ -21,42 +25,20 @@ from __future__ import annotations
 
 import json
 from dataclasses import asdict, dataclass
-from pathlib import Path
 
 import pandas as pd
 
+from src.config import settings as settings_module
+
 
 # ============================================================
-# CONFIGURATION
+# STATIC DOMAIN CONFIGURATION
 # ============================================================
-
-REFERENCE_DATA_PATH = Path(
-    "data/processed/processed_train.csv"
-)
-
-LIVE_DATA_PATH = Path(
-    "data/monitoring/predictions.csv"
-)
-
-DRIFT_REPORT_PATH = Path(
-    "data/monitoring/drift_report.json"
-)
-
-DRIFT_THRESHOLD = 0.20
 
 MONITORED_FEATURES = [
     "price",
     "promo",
 ]
-
-
-# ============================================================
-# OBSERVATION WINDOW
-# ============================================================
-
-OBSERVATION_WINDOW_SIZE = 50
-
-MIN_OBSERVATIONS = 10
 
 TIMESTAMP_COLUMN = "timestamp"
 
@@ -80,6 +62,23 @@ class FeatureDriftResult:
 
 
 # ============================================================
+# RUNTIME CONFIGURATION
+# ============================================================
+
+
+def _get_runtime_settings():
+    """
+    Return the current validated runtime settings.
+
+    The settings module is imported rather than the Settings
+    instance directly so tests and controlled runtime environments
+    can replace the application-wide settings object safely.
+    """
+
+    return settings_module.settings
+
+
+# ============================================================
 # DATA LOADING
 # ============================================================
 
@@ -89,30 +88,43 @@ def _load_reference_data() -> pd.DataFrame:
     Load the canonical training/reference dataset.
     """
 
-    if not REFERENCE_DATA_PATH.exists():
+    reference_data_path = (
+        _get_runtime_settings()
+        .reference_data_path
+    )
+
+    if not reference_data_path.exists():
         raise FileNotFoundError(
-            f"Reference dataset not found: "
-            f"{REFERENCE_DATA_PATH}"
+            "Reference dataset not found: "
+            f"{reference_data_path}"
         )
 
     return pd.read_csv(
-        REFERENCE_DATA_PATH
+        reference_data_path
     )
 
 
 def _load_live_data() -> pd.DataFrame:
     """
     Load observed production prediction data.
+
+    The prediction log path is the runtime-configured source
+    for production observations.
     """
 
-    if not LIVE_DATA_PATH.exists():
+    prediction_log_path = (
+        _get_runtime_settings()
+        .prediction_log_path
+    )
+
+    if not prediction_log_path.exists():
         raise FileNotFoundError(
-            f"Live prediction data not found: "
-            f"{LIVE_DATA_PATH}"
+            "Live prediction data not found: "
+            f"{prediction_log_path}"
         )
 
     return pd.read_csv(
-        LIVE_DATA_PATH
+        prediction_log_path
     )
 
 
@@ -135,8 +147,8 @@ def _select_observation_window(
     ------------
     1. Timestamp column must exist.
     2. Timestamps must be parseable.
-    3. At least MIN_OBSERVATIONS must be available.
-    4. The newest OBSERVATION_WINDOW_SIZE observations are used.
+    3. At least the configured minimum observations must exist.
+    4. The newest configured observation-window records are used.
 
     Returns
     -------
@@ -144,9 +156,19 @@ def _select_observation_window(
         Chronologically ordered recent observation window.
     """
 
+    runtime_settings = _get_runtime_settings()
+
+    observation_window_size = (
+        runtime_settings.observation_window_size
+    )
+
+    min_observations = (
+        runtime_settings.min_observations
+    )
+
     if TIMESTAMP_COLUMN not in live_df.columns:
         raise ValueError(
-            f"Live prediction data must contain "
+            "Live prediction data must contain "
             f"'{TIMESTAMP_COLUMN}' column."
         )
 
@@ -165,15 +187,15 @@ def _select_observation_window(
 
     if window[TIMESTAMP_COLUMN].isnull().any():
         raise ValueError(
-            f"Live prediction data contains invalid "
+            "Live prediction data contains invalid "
             f"'{TIMESTAMP_COLUMN}' values."
         )
 
-    if len(window) < MIN_OBSERVATIONS:
+    if len(window) < min_observations:
         raise ValueError(
             "Insufficient live observations for drift "
-            f"detection. Required at least "
-            f"{MIN_OBSERVATIONS}, found {len(window)}."
+            "detection. Required at least "
+            f"{min_observations}, found {len(window)}."
         )
 
     window = (
@@ -182,11 +204,16 @@ def _select_observation_window(
             TIMESTAMP_COLUMN,
             ascending=True,
         )
-        .tail(OBSERVATION_WINDOW_SIZE)
+        .tail(observation_window_size)
         .reset_index(drop=True)
     )
 
     return window
+
+
+# ============================================================
+# OBSERVATION WINDOW METADATA
+# ============================================================
 
 
 def _build_observation_window_metadata(
@@ -207,6 +234,16 @@ def _build_observation_window_metadata(
     - model versions represented in the window
     """
 
+    runtime_settings = _get_runtime_settings()
+
+    observation_window_size = (
+        runtime_settings.observation_window_size
+    )
+
+    min_observations = (
+        runtime_settings.min_observations
+    )
+
     if observation_window.empty:
         raise ValueError(
             "Observation window cannot be empty."
@@ -214,7 +251,7 @@ def _build_observation_window_metadata(
 
     if TIMESTAMP_COLUMN not in observation_window.columns:
         raise ValueError(
-            f"Observation window must contain "
+            "Observation window must contain "
             f"'{TIMESTAMP_COLUMN}' column."
         )
 
@@ -239,14 +276,14 @@ def _build_observation_window_metadata(
             len(observation_window)
         ),
         "observation_window_size": int(
-            OBSERVATION_WINDOW_SIZE
+            observation_window_size
         ),
         "minimum_observations": int(
-            MIN_OBSERVATIONS
+            min_observations
         ),
         "window_complete": (
             len(observation_window)
-            == OBSERVATION_WINDOW_SIZE
+            == observation_window_size
         ),
         "oldest_observation_timestamp": (
             timestamps.min().isoformat()
@@ -331,7 +368,14 @@ def _calculate_feature_drift(
 ) -> FeatureDriftResult:
     """
     Calculate drift statistics for one numerical feature.
+
+    The drift threshold comes from validated runtime configuration.
     """
+
+    drift_threshold = (
+        _get_runtime_settings()
+        .drift_threshold
+    )
 
     reference_mean = float(
         reference.mean()
@@ -347,14 +391,14 @@ def _calculate_feature_drift(
     )
 
     drift_detected = (
-        drift_ratio >= DRIFT_THRESHOLD
+        drift_ratio >= drift_threshold
     )
 
     return FeatureDriftResult(
         reference_mean=reference_mean,
         live_mean=live_mean,
         drift_ratio=drift_ratio,
-        threshold=DRIFT_THRESHOLD,
+        threshold=drift_threshold,
         drift_detected=drift_detected,
     )
 
@@ -372,6 +416,9 @@ def detect_drift(
     Detect feature drift between reference training data
     and the recent production observation window.
 
+    Runtime paths and drift policy are resolved from the
+    validated application settings.
+
     Returns
     -------
     dict
@@ -387,6 +434,8 @@ def detect_drift(
         contain null values, timestamps are invalid, or there
         are insufficient live observations.
     """
+
+    runtime_settings = _get_runtime_settings()
 
     reference_df = _load_reference_data()
 
@@ -462,12 +511,16 @@ def detect_drift(
 
     if save:
 
-        DRIFT_REPORT_PATH.parent.mkdir(
+        drift_report_path = (
+            runtime_settings.drift_report_path
+        )
+
+        drift_report_path.parent.mkdir(
             parents=True,
             exist_ok=True,
         )
 
-        with DRIFT_REPORT_PATH.open(
+        with drift_report_path.open(
             "w",
             encoding="utf-8",
         ) as file:
@@ -476,11 +529,20 @@ def detect_drift(
                 report,
                 file,
                 indent=2,
-            )
+        )
 
         print(
-            f"Drift report saved to "
-            f"{DRIFT_REPORT_PATH}"
+            "Drift report saved to "
+            f"{drift_report_path}"
         )
 
     return report
+
+
+# ============================================================
+# CLI ENTRYPOINT
+# ============================================================
+
+
+if __name__ == "__main__":
+    detect_drift()
