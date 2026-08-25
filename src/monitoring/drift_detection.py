@@ -8,8 +8,9 @@ Responsibilities
 3. Select a recent observation window.
 4. Validate monitored numerical features.
 5. Calculate drift statistics.
-6. Produce a structured drift report.
-7. Persist the report for downstream orchestration.
+6. Build auditable observation-window metadata.
+7. Produce a structured drift report.
+8. Persist the report for downstream orchestration.
 
 This module detects drift only.
 
@@ -47,6 +48,7 @@ MONITORED_FEATURES = [
     "price",
     "promo",
 ]
+
 
 # ============================================================
 # OBSERVATION WINDOW
@@ -185,6 +187,75 @@ def _select_observation_window(
     )
 
     return window
+
+
+def _build_observation_window_metadata(
+    observation_window: pd.DataFrame,
+) -> dict:
+    """
+    Build metadata describing the observations used for
+    drift detection.
+
+    The metadata makes the drift decision auditable by recording:
+
+    - observation count
+    - configured window size
+    - minimum required observations
+    - whether the configured window was completely filled
+    - oldest observation timestamp
+    - newest observation timestamp
+    - model versions represented in the window
+    """
+
+    if observation_window.empty:
+        raise ValueError(
+            "Observation window cannot be empty."
+        )
+
+    if TIMESTAMP_COLUMN not in observation_window.columns:
+        raise ValueError(
+            f"Observation window must contain "
+            f"'{TIMESTAMP_COLUMN}' column."
+        )
+
+    timestamps = observation_window[
+        TIMESTAMP_COLUMN
+    ]
+
+    model_versions: list[str] = []
+
+    if "model_version" in observation_window.columns:
+        model_versions = sorted(
+            observation_window[
+                "model_version"
+            ]
+            .astype(str)
+            .unique()
+            .tolist()
+        )
+
+    return {
+        "observation_count": int(
+            len(observation_window)
+        ),
+        "observation_window_size": int(
+            OBSERVATION_WINDOW_SIZE
+        ),
+        "minimum_observations": int(
+            MIN_OBSERVATIONS
+        ),
+        "window_complete": (
+            len(observation_window)
+            == OBSERVATION_WINDOW_SIZE
+        ),
+        "oldest_observation_timestamp": (
+            timestamps.min().isoformat()
+        ),
+        "newest_observation_timestamp": (
+            timestamps.max().isoformat()
+        ),
+        "model_versions": model_versions,
+    }
 
 
 # ============================================================
@@ -329,6 +400,16 @@ def detect_drift(
         live_df
     )
 
+    # --------------------------------------------------------
+    # BUILD OBSERVATION WINDOW METADATA
+    # --------------------------------------------------------
+
+    observation_metadata = (
+        _build_observation_window_metadata(
+            live_window
+        )
+    )
+
     report: dict[str, dict] = {}
 
     # --------------------------------------------------------
@@ -372,26 +453,7 @@ def detect_drift(
         "monitored_features": len(
             MONITORED_FEATURES
         ),
-        "observation_count": len(
-            live_window
-        ),
-        "observation_window_size": (
-            OBSERVATION_WINDOW_SIZE
-        ),
-        "latest_observation": (
-            live_window[
-                TIMESTAMP_COLUMN
-            ]
-            .max()
-            .isoformat()
-        ),
-        "earliest_observation": (
-            live_window[
-                TIMESTAMP_COLUMN
-            ]
-            .min()
-            .isoformat()
-        ),
+        **observation_metadata,
     }
 
     # --------------------------------------------------------

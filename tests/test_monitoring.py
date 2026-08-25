@@ -1,3 +1,5 @@
+import json
+
 import pandas as pd
 import pytest
 
@@ -15,6 +17,7 @@ from src.monitoring.prediction_logger import (
 # ============================================================
 # DRIFT RATIO TESTS
 # ============================================================
+
 
 def test_drift_ratio_is_zero_when_means_match():
     result = _calculate_drift_ratio(
@@ -65,6 +68,7 @@ def test_drift_at_threshold_is_detected():
 # ============================================================
 # PREDICTION LOGGER TESTS
 # ============================================================
+
 
 def test_prediction_logger_creates_contract(
     tmp_path,
@@ -256,6 +260,7 @@ def test_prediction_logger_rejects_missing_category(
 # DRIFT DETECTION TESTS
 # ============================================================
 
+
 def test_detect_drift_uses_reference_and_live_data(
     tmp_path,
     monkeypatch,
@@ -282,10 +287,6 @@ def test_detect_drift_uses_reference_and_live_data(
         }
     )
 
-    # 4.8A:
-    # Production observations must contain timestamps
-    # because drift detection now operates on a recent
-    # observation window.
     live = pd.DataFrame(
         {
             "timestamp": pd.date_range(
@@ -293,6 +294,7 @@ def test_detect_drift_uses_reference_and_live_data(
                 periods=10,
                 freq="h",
             ),
+            "model_version": ["7"] * 10,
             "price": [150] * 10,
             "promo": [1] * 10,
         }
@@ -355,7 +357,143 @@ def test_detect_drift_uses_reference_and_live_data(
         == 50
     )
 
+    assert (
+        report["_summary"]["minimum_observations"]
+        == 10
+    )
+
+    assert (
+        report["_summary"]["window_complete"]
+        is False
+    )
+
+    assert (
+        report["_summary"]["model_versions"]
+        == ["7"]
+    )
+
     assert report_path.exists()
+
+
+def test_detect_drift_report_contains_observation_metadata(
+    tmp_path,
+    monkeypatch,
+):
+    reference_path = (
+        tmp_path /
+        "reference.csv"
+    )
+
+    live_path = (
+        tmp_path /
+        "live.csv"
+    )
+
+    report_path = (
+        tmp_path /
+        "drift_report.json"
+    )
+
+    reference = pd.DataFrame(
+        {
+            "price": [100, 100, 100],
+            "promo": [0, 0, 0],
+        }
+    )
+
+    timestamps = pd.date_range(
+        "2024-01-01",
+        periods=10,
+        freq="h",
+    )
+
+    live = pd.DataFrame(
+        {
+            "timestamp": timestamps,
+            "model_version": ["7"] * 10,
+            "price": [150] * 10,
+            "promo": [1] * 10,
+        }
+    )
+
+    reference.to_csv(
+        reference_path,
+        index=False,
+    )
+
+    live.to_csv(
+        live_path,
+        index=False,
+    )
+
+    monkeypatch.setattr(
+        drift_detection,
+        "REFERENCE_DATA_PATH",
+        reference_path,
+    )
+
+    monkeypatch.setattr(
+        drift_detection,
+        "LIVE_DATA_PATH",
+        live_path,
+    )
+
+    monkeypatch.setattr(
+        drift_detection,
+        "DRIFT_REPORT_PATH",
+        report_path,
+    )
+
+    detect_drift(
+        save=True,
+    )
+
+    with report_path.open(
+        "r",
+        encoding="utf-8",
+    ) as file:
+        persisted_report = json.load(file)
+
+    summary = persisted_report["_summary"]
+
+    assert (
+        summary["observation_count"]
+        == 10
+    )
+
+    assert (
+        summary["observation_window_size"]
+        == 50
+    )
+
+    assert (
+        summary["minimum_observations"]
+        == 10
+    )
+
+    assert (
+        summary["window_complete"]
+        is False
+    )
+
+    assert (
+        summary["model_versions"]
+        == ["7"]
+    )
+
+    assert (
+        summary[
+            "oldest_observation_timestamp"
+        ]
+        == "2024-01-01T00:00:00+00:00"
+    )
+
+    assert (
+        summary[
+            "newest_observation_timestamp"
+        ]
+        == "2024-01-01T09:00:00+00:00"
+    )
 
 
 def test_detect_drift_rejects_non_numeric_feature(
@@ -547,6 +685,7 @@ def test_detect_drift_fails_when_live_data_is_missing(
 # OBSERVATION WINDOW TESTS
 # ============================================================
 
+
 def test_observation_window_selects_latest_records():
     timestamps = pd.date_range(
         "2024-01-01",
@@ -659,6 +798,219 @@ def test_observation_window_rejects_invalid_timestamp():
         )
 
 
+# ============================================================
+# OBSERVATION WINDOW METADATA TESTS
+# ============================================================
+
+
+def test_observation_window_metadata_reports_partial_window():
+    timestamps = pd.date_range(
+        "2024-01-01",
+        periods=10,
+        freq="h",
+    )
+
+    live = pd.DataFrame(
+        {
+            "timestamp": timestamps,
+            "model_version": ["7"] * 10,
+            "price": [100] * 10,
+            "promo": [0] * 10,
+        }
+    )
+
+    window = drift_detection._select_observation_window(
+        live
+    )
+
+    metadata = (
+        drift_detection._build_observation_window_metadata(
+            window
+        )
+    )
+
+    assert (
+        metadata["observation_count"]
+        == 10
+    )
+
+    assert (
+        metadata["observation_window_size"]
+        == 50
+    )
+
+    assert (
+        metadata["minimum_observations"]
+        == 10
+    )
+
+    assert (
+        metadata["window_complete"]
+        is False
+    )
+
+    assert (
+        metadata["model_versions"]
+        == ["7"]
+    )
+
+    assert (
+        metadata[
+            "oldest_observation_timestamp"
+        ]
+        == "2024-01-01T00:00:00+00:00"
+    )
+
+    assert (
+        metadata[
+            "newest_observation_timestamp"
+        ]
+        == "2024-01-01T09:00:00+00:00"
+    )
+
+
+def test_observation_window_metadata_reports_complete_window():
+    timestamps = pd.date_range(
+        "2024-01-01",
+        periods=50,
+        freq="h",
+    )
+
+    live = pd.DataFrame(
+        {
+            "timestamp": timestamps,
+            "model_version": ["7"] * 50,
+            "price": [100] * 50,
+            "promo": [0] * 50,
+        }
+    )
+
+    window = drift_detection._select_observation_window(
+        live
+    )
+
+    metadata = (
+        drift_detection._build_observation_window_metadata(
+            window
+        )
+    )
+
+    assert (
+        metadata["observation_count"]
+        == 50
+    )
+
+    assert (
+        metadata["observation_window_size"]
+        == 50
+    )
+
+    assert (
+        metadata["window_complete"]
+        is True
+    )
+
+    assert (
+        metadata["model_versions"]
+        == ["7"]
+    )
+
+
+def test_observation_window_metadata_tracks_multiple_model_versions():
+    timestamps = pd.date_range(
+        "2024-01-01",
+        periods=50,
+        freq="h",
+    )
+
+    live = pd.DataFrame(
+        {
+            "timestamp": timestamps,
+            "model_version": (
+                ["7"] * 20
+                + ["8"] * 30
+            ),
+            "price": [100] * 50,
+            "promo": [0] * 50,
+        }
+    )
+
+    window = drift_detection._select_observation_window(
+        live
+    )
+
+    metadata = (
+        drift_detection._build_observation_window_metadata(
+            window
+        )
+    )
+
+    assert (
+        metadata["model_versions"]
+        == ["7", "8"]
+    )
+
+
+def test_observation_window_metadata_handles_missing_model_version():
+    timestamps = pd.date_range(
+        "2024-01-01",
+        periods=10,
+        freq="h",
+    )
+
+    live = pd.DataFrame(
+        {
+            "timestamp": timestamps,
+            "price": [100] * 10,
+            "promo": [0] * 10,
+        }
+    )
+
+    window = drift_detection._select_observation_window(
+        live
+    )
+
+    metadata = (
+        drift_detection._build_observation_window_metadata(
+            window
+        )
+    )
+
+    assert (
+        metadata["model_versions"]
+        == []
+    )
+
+
+def test_observation_window_metadata_rejects_empty_window():
+    live = pd.DataFrame(
+        {
+            "timestamp": pd.Series(
+                dtype="datetime64[ns]"
+            ),
+            "price": pd.Series(
+                dtype="float64"
+            ),
+            "promo": pd.Series(
+                dtype="int64"
+            ),
+        }
+    )
+
+    with pytest.raises(
+        ValueError,
+        match="Observation window cannot be empty",
+    ):
+        drift_detection._build_observation_window_metadata(
+            live
+        )
+
+
+# ============================================================
+# DRIFT DETECTION WITH RECENT OBSERVATION WINDOW
+# ============================================================
+
+
 def test_detect_drift_uses_only_recent_observation_window(
     tmp_path,
     monkeypatch,
@@ -689,6 +1041,10 @@ def test_detect_drift_uses_only_recent_observation_window(
     live = pd.DataFrame(
         {
             "timestamp": timestamps,
+            "model_version": (
+                ["7"] * 10
+                + ["8"] * 50
+            ),
             "price": (
                 [100] * 10
                 + [120] * 50
@@ -741,4 +1097,33 @@ def test_detect_drift_uses_only_recent_observation_window(
     assert (
         report["_summary"]["observation_window_size"]
         == 50
+    )
+
+    assert (
+        report["_summary"]["minimum_observations"]
+        == 10
+    )
+
+    assert (
+        report["_summary"]["window_complete"]
+        is True
+    )
+
+    assert (
+        report["_summary"]["model_versions"]
+        == ["8"]
+    )
+
+    assert (
+        report["_summary"][
+            "oldest_observation_timestamp"
+        ]
+        == "2024-01-01T10:00:00+00:00"
+    )
+
+    assert (
+        report["_summary"][
+            "newest_observation_timestamp"
+        ]
+        == "2024-01-03T11:00:00+00:00"
     )
