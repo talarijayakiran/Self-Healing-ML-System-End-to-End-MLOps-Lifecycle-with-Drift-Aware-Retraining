@@ -1,12 +1,51 @@
-FROM python:3.10-slim
+FROM python:3.13-slim
 
 WORKDIR /app
 
-COPY requirements.txt .
-RUN pip install --no-cache-dir -r requirements.txt
+# ============================================================
+# RUNTIME CONFIGURATION
+# ============================================================
+
+# Load the immutable model packaged inside the Docker image.
+ENV MODEL_SOURCE=packaged
+ENV PACKAGED_MODEL_PATH=/app/exported_model
+ENV PACKAGED_MODEL_VERSION=7
+
+# ============================================================
+# INSTALL PRODUCTION SERVING DEPENDENCIES
+# ============================================================
+
+COPY requirements-serving.txt /tmp/requirements-serving.txt
+
+RUN pip install --upgrade pip \
+    && pip install --no-cache-dir -r /tmp/requirements-serving.txt
+
+# ============================================================
+# APPLICATION
+# ============================================================
 
 COPY src/ src/
+
+# ============================================================
+# MODEL ARTIFACTS
+# ============================================================
+
+COPY exported_model/ exported_model/
+
+# ============================================================
+# RUNTIME DATA
+# ============================================================
+
 COPY data/ data/
-COPY exported_model/ model/
+
+# ============================================================
+# NETWORK
+# ============================================================
+
+EXPOSE 8000
+
+# ============================================================
+# APPLICATION STARTUP
+# ============================================================
 
 CMD ["uvicorn", "src.serving.app:app", "--host", "0.0.0.0", "--port", "8000"]

@@ -7,6 +7,7 @@ from threading import Lock
 import mlflow.pyfunc
 import pandas as pd
 from fastapi import FastAPI, HTTPException, status
+from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import Response
 from mlflow.tracking import MlflowClient
 from prometheus_client import (
@@ -24,16 +25,74 @@ from src.serving.schemas import (
 )
 
 
-# =====================================================
-# CONFIG
-# =====================================================
+# ============================================================
+# CONFIGURATION
+# ============================================================
 
 MODEL_NAME = "retail_demand_forecaster"
 
-MODEL_PATH = os.getenv(
-    "MODEL_PATH",
-    "/app/model",
+# ------------------------------------------------------------
+# MLflow production alias
+# ------------------------------------------------------------
+#
+# Training creates candidate models.
+# Quality gate determines eligibility.
+# Promotion assigns the production alias.
+#
+# When MODEL_SOURCE=mlflow:
+#
+#     candidate
+#         ↓
+#     quality gate
+#         ↓
+#     promotion
+#         ↓
+#     production alias
+#         ↓
+#     serving
+#
+PRODUCTION_ALIAS = "production"
+
+
+# ------------------------------------------------------------
+# Serving model source
+# ------------------------------------------------------------
+#
+# packaged:
+#     Load immutable model artifact bundled inside Docker.
+#
+# mlflow:
+#     Resolve the MLflow production alias and load the model
+#     from the configured MLflow artifact store.
+#
+# Docker defaults to "packaged" because the local MLflow
+# artifact store contains Windows filesystem paths that do not
+# exist inside the Linux container.
+#
+MODEL_SOURCE = os.getenv(
+    "MODEL_SOURCE",
+    "packaged",
+).lower()
+
+
+# ------------------------------------------------------------
+# Packaged model configuration
+# ------------------------------------------------------------
+
+PACKAGED_MODEL_PATH = os.getenv(
+    "PACKAGED_MODEL_PATH",
+    "exported_model",
 )
+
+PACKAGED_MODEL_VERSION = os.getenv(
+    "PACKAGED_MODEL_VERSION",
+    "7",
+)
+
+
+# ------------------------------------------------------------
+# Test mode
+# ------------------------------------------------------------
 
 TEST_MODE = (
     os.getenv(
@@ -44,11 +103,12 @@ TEST_MODE = (
 )
 
 
-# =====================================================
+# ============================================================
 # MODEL STATE
-# =====================================================
+# ============================================================
 
 model = None
+
 model_version = None
 
 model_lock = Lock()
@@ -56,87 +116,261 @@ model_lock = Lock()
 mlflow_client = MlflowClient()
 
 
-# =====================================================
-# LOAD MODEL
-# HOT-RELOAD SAFE
-# =====================================================
+# ============================================================
+# MODEL LOADING
+# ============================================================
 
 def load_model(force_reload: bool = False):
-    global model, model_version
+    """
+    Load the production model.
+
+    Supported serving modes:
+
+    1. packaged
+       Load the immutable model artifact bundled into the
+       application container.
+
+    2. mlflow
+       Resolve the model assigned to the MLflow production
+       alias and load it from the MLflow artifact store.
+
+    Production model selection must never use an arbitrary
+    "latest" model version.
+
+    Parameters
+    ----------
+    force_reload:
+        Force a model reload even when the currently loaded
+        model is already the desired version.
+
+    Returns
+    -------
+    object | None
+        Loaded MLflow PyFunc model, or None in TEST_MODE.
+
+    Raises
+    ------
+    RuntimeError
+        If model resolution or model loading fails.
+    """
+
+    global model
+    global model_version
+
+    # --------------------------------------------------------
+    # TEST MODE
+    # --------------------------------------------------------
 
     if TEST_MODE:
+
         print(
-            "⚠ TEST_MODE enabled — model loading skipped"
+            "TEST_MODE enabled - model loading skipped"
         )
+
         return None
+
+    # --------------------------------------------------------
+    # VALIDATE MODEL SOURCE
+    # --------------------------------------------------------
+
+    if MODEL_SOURCE not in {
+        "packaged",
+        "mlflow",
+    }:
+
+        raise RuntimeError(
+            "Invalid MODEL_SOURCE. "
+            "Expected 'packaged' or 'mlflow', "
+            f"got '{MODEL_SOURCE}'."
+        )
+
+    # ========================================================
+    # PACKAGED MODEL MODE
+    # ========================================================
+
+    if MODEL_SOURCE == "packaged":
+
+        with model_lock:
+
+            # ------------------------------------------------
+            # HOT-RELOAD CHECK
+            # ------------------------------------------------
+
+            if (
+                model is not None
+                and model_version == PACKAGED_MODEL_VERSION
+                and not force_reload
+            ):
+
+                return model
+
+            # ------------------------------------------------
+            # LOAD PACKAGED MODEL
+            # ------------------------------------------------
+
+            try:
+
+                loaded_model = mlflow.pyfunc.load_model(
+                    PACKAGED_MODEL_PATH
+                )
+
+            except Exception as exc:
+
+                raise RuntimeError(
+                    "Failed to load packaged production model. "
+                    f"path='{PACKAGED_MODEL_PATH}'."
+                ) from exc
+
+            # ------------------------------------------------
+            # UPDATE MODEL STATE
+            # ------------------------------------------------
+
+            model = loaded_model
+
+            model_version = PACKAGED_MODEL_VERSION
+
+            print(
+                "Loaded packaged production model: "
+                f"path='{PACKAGED_MODEL_PATH}', "
+                f"version='{model_version}'"
+            )
+
+            return model
+
+    # ========================================================
+    # MLFLOW REGISTRY MODE
+    # ========================================================
 
     with model_lock:
 
-        versions = mlflow_client.get_latest_versions(
-            MODEL_NAME,
-            stages=["None"],
-        )
+        # ----------------------------------------------------
+        # RESOLVE PRODUCTION ALIAS
+        # ----------------------------------------------------
 
-        if not versions:
-            raise RuntimeError(
-                "No registered models found in MLflow"
+        try:
+
+            production_version = (
+                mlflow_client.get_model_version_by_alias(
+                    MODEL_NAME,
+                    PRODUCTION_ALIAS,
+                )
             )
 
-        latest = versions[0]
+        except Exception as exc:
+
+            raise RuntimeError(
+                "Production model alias could not be resolved. "
+                f"Model='{MODEL_NAME}', "
+                f"alias='{PRODUCTION_ALIAS}'."
+            ) from exc
+
+        # ----------------------------------------------------
+        # RESOLVE VERSION
+        # ----------------------------------------------------
+
+        resolved_version = str(
+            production_version.version
+        )
+
+        # ----------------------------------------------------
+        # HOT-RELOAD CHECK
+        # ----------------------------------------------------
 
         if (
             model is not None
-            and model_version == latest.version
+            and model_version == resolved_version
             and not force_reload
         ):
+
             return model
 
+        # ----------------------------------------------------
+        # PRODUCTION MODEL URI
+        # ----------------------------------------------------
+
         model_uri = (
-            f"models:/{MODEL_NAME}/{latest.version}"
+            f"models:/{MODEL_NAME}@{PRODUCTION_ALIAS}"
         )
 
-        model = mlflow.pyfunc.load_model(
-            model_uri
-        )
+        # ----------------------------------------------------
+        # LOAD MODEL
+        # ----------------------------------------------------
 
-        model_version = latest.version
+        try:
+
+            loaded_model = mlflow.pyfunc.load_model(
+                model_uri
+            )
+
+        except Exception as exc:
+
+            raise RuntimeError(
+                "Failed to load production model. "
+                f"Model='{MODEL_NAME}', "
+                f"version='{resolved_version}'."
+            ) from exc
+
+        # ----------------------------------------------------
+        # UPDATE MODEL STATE
+        # ----------------------------------------------------
+
+        model = loaded_model
+
+        model_version = resolved_version
 
         print(
-            f"Loaded model version: "
-            f"{model_version}"
+            "Loaded MLflow production model: "
+            f"{MODEL_NAME}:{model_version}"
         )
 
         return model
 
 
-# =====================================================
+# ============================================================
 # FASTAPI LIFESPAN
-# =====================================================
+# ============================================================
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
 
-    print("Starting Self-Healing ML Inference API...")
+    print(
+        "Starting Self-Healing ML Inference API..."
+    )
+
+    print(
+        "Model serving configuration: "
+        f"source='{MODEL_SOURCE}'"
+    )
 
     try:
+
         load_model()
+
         print(
-            f"Model initialization successful "
-            f"(version={model_version})"
+            "Model initialization successful "
+            f"(production_version={model_version})"
         )
 
     except Exception as exc:
+
         print(
-            f"Model initialization failed: {exc}"
+            "Model initialization failed: "
+            f"{exc}"
         )
 
-        # Do not crash the process here.
+        # ----------------------------------------------------
+        # IMPORTANT
+        # ----------------------------------------------------
         #
-        # The application can still start and
-        # /ready will correctly report 503.
+        # Do not terminate the process.
         #
-        # This allows Kubernetes/AWS/load balancers
-        # to detect that the instance is not ready.
+        # /ready returns HTTP 503 when the model is unavailable.
+        #
+        # This allows Kubernetes, AWS load balancers,
+        # container orchestration systems and health-check
+        # mechanisms to correctly determine that this instance
+        # is not ready to receive traffic.
+        #
 
     yield
 
@@ -145,9 +379,9 @@ async def lifespan(app: FastAPI):
     )
 
 
-# =====================================================
+# ============================================================
 # FASTAPI APPLICATION
-# =====================================================
+# ============================================================
 
 app = FastAPI(
     title="Self-Healing ML Inference API",
@@ -156,9 +390,25 @@ app = FastAPI(
 )
 
 
-# =====================================================
+# ============================================================
+# CORS
+# ============================================================
+
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=[
+        "http://localhost:5173",
+        "http://127.0.0.1:5173",
+    ],
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
+
+
+# ============================================================
 # PROMETHEUS METRICS
-# =====================================================
+# ============================================================
 
 REQUEST_COUNT = Counter(
     "http_requests_total",
@@ -184,18 +434,18 @@ PREDICTION_LATENCY = Histogram(
 )
 
 
-# =====================================================
-# FEATURE TEMPLATE
-# =====================================================
+# ============================================================
+# FEATURE CONTRACT
+# ============================================================
 
 FEATURE_COLUMNS = pd.read_csv(
     "data/processed/processed_inference.csv"
 ).columns.tolist()
 
 
-# =====================================================
+# ============================================================
 # HEALTH CHECK
-# =====================================================
+# ============================================================
 
 @app.get(
     "/health",
@@ -214,9 +464,9 @@ def health():
     )
 
 
-# =====================================================
+# ============================================================
 # READINESS CHECK
-# =====================================================
+# ============================================================
 
 @app.get(
     "/ready",
@@ -227,7 +477,9 @@ def readiness():
     if model is None:
 
         raise HTTPException(
-            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            status_code=(
+                status.HTTP_503_SERVICE_UNAVAILABLE
+            ),
             detail="Model is not ready",
         )
 
@@ -238,13 +490,17 @@ def readiness():
     )
 
 
-# =====================================================
+# ============================================================
 # FEATURE BUILDER
-# =====================================================
+# ============================================================
 
 def build_feature_vector(
     input_data: PredictionInput,
 ) -> pd.DataFrame:
+    """
+    Build the inference feature vector using the canonical
+    feature ordering defined by processed_inference.csv.
+    """
 
     X = pd.DataFrame(
         0,
@@ -252,40 +508,80 @@ def build_feature_vector(
         index=[0],
     )
 
+    # --------------------------------------------------------
+    # DATE FEATURES
+    # --------------------------------------------------------
+
     dt = input_data.date
 
     if "day" in X.columns:
-        X.at[0, "day"] = dt.day
+
+        X.at[
+            0,
+            "day",
+        ] = dt.day
 
     if "month" in X.columns:
-        X.at[0, "month"] = dt.month
+
+        X.at[
+            0,
+            "month",
+        ] = dt.month
+
+    # --------------------------------------------------------
+    # NUMERICAL FEATURES
+    # --------------------------------------------------------
 
     if "price" in X.columns:
-        X.at[0, "price"] = input_data.price
+
+        X.at[
+            0,
+            "price",
+        ] = input_data.price
 
     if "promo" in X.columns:
-        X.at[0, "promo"] = input_data.promo
 
-    cat_col = (
+        X.at[
+            0,
+            "promo",
+        ] = input_data.promo
+
+    # --------------------------------------------------------
+    # CATEGORY
+    # --------------------------------------------------------
+
+    category_column = (
         f"category_{input_data.category}"
     )
 
-    if cat_col in X.columns:
-        X.at[0, cat_col] = 1
+    if category_column in X.columns:
 
-    reg_col = (
+        X.at[
+            0,
+            category_column,
+        ] = 1
+
+    # --------------------------------------------------------
+    # REGION
+    # --------------------------------------------------------
+
+    region_column = (
         f"region_{input_data.region}"
     )
 
-    if reg_col in X.columns:
-        X.at[0, reg_col] = 1
+    if region_column in X.columns:
+
+        X.at[
+            0,
+            region_column,
+        ] = 1
 
     return X
 
 
-# =====================================================
-# PREDICT
-# =====================================================
+# ============================================================
+# PREDICTION ENDPOINT
+# ============================================================
 
 @app.post(
     "/predict",
@@ -305,11 +601,12 @@ def predict(
 
     try:
 
-        # ---------------------------------------------
-        # Ensure model is available
-        # ---------------------------------------------
+        # ====================================================
+        # ENSURE PRODUCTION MODEL IS AVAILABLE
+        # ====================================================
 
         try:
+
             current_model = load_model()
 
         except Exception as exc:
@@ -317,8 +614,12 @@ def predict(
             status_code = 503
 
             raise HTTPException(
-                status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
-                detail="Prediction service is not ready",
+                status_code=(
+                    status.HTTP_503_SERVICE_UNAVAILABLE
+                ),
+                detail=(
+                    "Prediction service is not ready"
+                ),
             ) from exc
 
         if current_model is None:
@@ -326,21 +627,25 @@ def predict(
             status_code = 503
 
             raise HTTPException(
-                status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
-                detail="Prediction model is not available",
+                status_code=(
+                    status.HTTP_503_SERVICE_UNAVAILABLE
+                ),
+                detail=(
+                    "Prediction model is not available"
+                ),
             )
 
-        # ---------------------------------------------
-        # Build feature vector
-        # ---------------------------------------------
+        # ====================================================
+        # BUILD FEATURES
+        # ====================================================
 
         features = build_feature_vector(
             input_data
         )
 
-        # ---------------------------------------------
-        # Model prediction
-        # ---------------------------------------------
+        # ====================================================
+        # MODEL INFERENCE
+        # ====================================================
 
         prediction_start = time.time()
 
@@ -355,29 +660,39 @@ def predict(
             status_code = 500
 
             raise HTTPException(
-                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                status_code=(
+                    status.HTTP_500_INTERNAL_SERVER_ERROR
+                ),
                 detail="Model prediction failed",
             ) from exc
+
+        # ----------------------------------------------------
+        # RECORD PREDICTION LATENCY
+        # ----------------------------------------------------
 
         PREDICTION_LATENCY.observe(
             time.time()
             - prediction_start
         )
 
-        # ---------------------------------------------
-        # Prediction logging
-        # ---------------------------------------------
+        # ====================================================
+        # CANONICAL PREDICTION LOGGING
+        # ====================================================
 
         log_prediction(
-            features=input_data.model_dump(
-                mode="json"
-            ),
+            request_id=request_id,
+            model_version=str(model_version),
+            date=input_data.date.isoformat(),
+            category=input_data.category,
+            region=input_data.region,
+            price=float(input_data.price),
+            promo=int(input_data.promo),
             prediction=float(prediction),
         )
 
-        # ---------------------------------------------
-        # API response
-        # ---------------------------------------------
+        # ====================================================
+        # API RESPONSE
+        # ====================================================
 
         return PredictionResponse(
             predicted_sales=round(
@@ -392,12 +707,20 @@ def predict(
 
     finally:
 
+        # ====================================================
+        # REQUEST LATENCY
+        # ====================================================
+
         REQUEST_LATENCY.labels(
             endpoint="/predict",
         ).observe(
             time.time()
             - start_time
         )
+
+        # ====================================================
+        # REQUEST COUNT
+        # ====================================================
 
         REQUEST_COUNT.labels(
             method="POST",
@@ -406,9 +729,9 @@ def predict(
         ).inc()
 
 
-# =====================================================
-# METRICS
-# =====================================================
+# ============================================================
+# PROMETHEUS METRICS ENDPOINT
+# ============================================================
 
 @app.get("/metrics")
 def metrics():

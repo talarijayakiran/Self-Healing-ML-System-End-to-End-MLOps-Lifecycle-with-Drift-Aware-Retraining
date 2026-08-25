@@ -7,4 +7,6 @@ data/monitoring/
 .env
 .DS_Store
 .idea/
-.vscode/
+.vscode/mlflow.db
+
+mlflow.db
