@@ -1,0 +1,99 @@
+name: CD - Deploy to AWS EC2
+
+on:
+  workflow_run:
+    workflows: ["CI - Test Pipeline"]
+    types:
+      - completed
+    branches:
+      - main
+
+env:
+  AWS_REGION: ap-south-2
+  ECR_REPOSITORY: retail-demand-api
+  EC2_CONTAINER_NAME: retail-demand-api
+  IMAGE_TAG: ${{ github.sha }}
+
+jobs:
+  deploy:
+    name: Build, Push and Deploy
+    runs-on: ubuntu-latest
+
+    # Deploy ONLY when CI succeeded
+    if: ${{ github.event.workflow_run.conclusion == 'success' }}
+
+    steps:
+      - name: Checkout main
+        uses: actions/checkout@v4
+
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          aws-region: ${{ env.AWS_REGION }}
+
+      - name: Login to Amazon ECR
+        id: ecr
+        uses: aws-actions/amazon-ecr-login@v2
+
+      - name: Build Docker image
+        run: |
+          docker build \
+            -f docker/dockerfile \
+            -t ${{ steps.ecr.outputs.registry }}/${{ env.ECR_REPOSITORY }}:${{ env.IMAGE_TAG }} \
+            -t ${{ steps.ecr.outputs.registry }}/${{ env.ECR_REPOSITORY }}:latest \
+            .
+
+      - name: Push Docker image to ECR
+        run: |
+          docker push \
+            ${{ steps.ecr.outputs.registry }}/${{ env.ECR_REPOSITORY }}:${{ env.IMAGE_TAG }}
+
+          docker push \
+            ${{ steps.ecr.outputs.registry }}/${{ env.ECR_REPOSITORY }}:latest
+
+      - name: Deploy to EC2
+        uses: appleboy/ssh-action@v1.2.2
+        with:
+          host: ${{ secrets.EC2_HOST }}
+          username: ec2-user
+          key: ${{ secrets.EC2_SSH_PRIVATE_KEY }}
+          script: |
+            set -e
+
+            AWS_REGION="${{ env.AWS_REGION }}"
+            ECR_REGISTRY="${{ steps.ecr.outputs.registry }}"
+            IMAGE="${ECR_REGISTRY}/${{ env.ECR_REPOSITORY }}:${{ env.IMAGE_TAG }}"
+
+            echo "Logging into ECR..."
+            aws ecr get-login-password --region "$AWS_REGION" \
+              | docker login \
+              --username AWS \
+              --password-stdin "$ECR_REGISTRY"
+
+            echo "Pulling image..."
+            docker pull "$IMAGE"
+
+            echo "Stopping previous container..."
+            docker rm -f ${{ env.EC2_CONTAINER_NAME }} 2>/dev/null || true
+
+            echo "Starting new container..."
+            docker run -d \
+              --name ${{ env.EC2_CONTAINER_NAME }} \
+              --restart unless-stopped \
+              -p 8000:8000 \
+              "$IMAGE"
+
+            echo "Waiting for application..."
+            sleep 15
+
+            echo "Health check..."
+            curl --fail --silent --show-error \
+              http://localhost:8000/health
+
+            echo ""
+            echo "Deployment successful."
+
+            echo "Running container:"
+            docker ps --filter "name=${{ env.EC2_CONTAINER_NAME }}"
