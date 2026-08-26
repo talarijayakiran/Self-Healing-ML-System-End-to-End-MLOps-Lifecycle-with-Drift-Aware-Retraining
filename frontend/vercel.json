@@ -3,7 +3,7 @@
   "rewrites": [
     {
       "source": "/api/:path*",
-      "destination": "https://os6isp2hj9.execute-api.ap-south-2.amazonaws.com/:path*"
+      "destination": "https://os6isp2hj9.execute-api.ap-south-2.amazonaws.com/api/:path*"
     }
   ]
 }
