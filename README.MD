@@ -284,4 +284,6 @@ This system was built end-to-end with a **production mindset**:
 > *If services are provide to users in 24/7 then only that system is production.*
 
 
-
+git add README.md
+git commit -m "ci: verify AWS continuous deployment"
+git push origin main
