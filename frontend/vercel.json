@@ -1,9 +1,0 @@
-﻿{
-  "$schema": "https://openapi.vercel.sh/vercel.json",
-  "rewrites": [
-    {
-      "source": "/api/:path*",
-      "destination": "https://os6isp2hj9.execute-api.ap-south-2.amazonaws.com/:path*"
-    }
-  ]
-}
