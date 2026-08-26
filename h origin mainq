@@ -1,0 +1,55 @@
+[1mdiff --git a/src/serving/app.py b/src/serving/app.py[m
+[1mindex ad5b91e..2bb306b 100644[m
+[1m--- a/src/serving/app.py[m
+[1m+++ b/src/serving/app.py[m
+[36m@@ -31,6 +31,7 @@[m [mfrom src.serving.schemas import ([m
+ [m
+ MODEL_NAME = "retail_demand_forecaster"[m
+ [m
+[32m+[m
+ # ------------------------------------------------------------[m
+ # MLflow production alias[m
+ # ------------------------------------------------------------[m
+[36m@@ -51,6 +52,7 @@[m [mMODEL_NAME = "retail_demand_forecaster"[m
+ #         ↓[m
+ #     serving[m
+ #[m
+[32m+[m
+ PRODUCTION_ALIAS = "production"[m
+ [m
+ [m
+[36m@@ -69,6 +71,7 @@[m [mPRODUCTION_ALIAS = "production"[m
+ # artifact store contains Windows filesystem paths that do not[m
+ # exist inside the Linux container.[m
+ #[m
+[32m+[m
+ MODEL_SOURCE = os.getenv([m
+     "MODEL_SOURCE",[m
+     "packaged",[m
+[36m@@ -393,12 +396,26 @@[m [mapp = FastAPI([m
+ # ============================================================[m
+ # CORS[m
+ # ============================================================[m
+[32m+[m[32m#[m
+[32m+[m[32m# Local frontend:[m
+[32m+[m[32m#     http://localhost:5173[m
+[32m+[m[32m#[m
+[32m+[m[32m# Local alternate:[m
+[32m+[m[32m#     http://127.0.0.1:5173[m
+[32m+[m[32m#[m
+[32m+[m[32m# Production frontend:[m
+[32m+[m[32m#     https://self-healing-ml-system-end-to-end-m.vercel.app[m
+[32m+[m[32m#[m
+[32m+[m[32m# The production origin is required so that the browser can[m
+[32m+[m[32m# call the AWS API Gateway -> FastAPI prediction endpoint.[m
+[32m+[m[32m#[m
+ [m
+ app.add_middleware([m
+     CORSMiddleware,[m
+     allow_origins=[[m
+         "http://localhost:5173",[m
+         "http://127.0.0.1:5173",[m
+[32m+[m[32m        "https://self-healing-ml-system-end-to-end-m.vercel.app",[m
+     ],[m
+     allow_credentials=True,[m
+     allow_methods=["*"],[m
