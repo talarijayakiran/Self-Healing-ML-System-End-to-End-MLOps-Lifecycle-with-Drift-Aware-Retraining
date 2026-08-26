@@ -1,0 +1,3 @@
+{
+  "overwrite:path": "/${request.path.proxy}"
+}
