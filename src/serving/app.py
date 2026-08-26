@@ -31,6 +31,7 @@ from src.serving.schemas import (
 
 MODEL_NAME = "retail_demand_forecaster"
 
+
 # ------------------------------------------------------------
 # MLflow production alias
 # ------------------------------------------------------------
@@ -51,6 +52,7 @@ MODEL_NAME = "retail_demand_forecaster"
 #         ↓
 #     serving
 #
+
 PRODUCTION_ALIAS = "production"
 
 
@@ -69,6 +71,7 @@ PRODUCTION_ALIAS = "production"
 # artifact store contains Windows filesystem paths that do not
 # exist inside the Linux container.
 #
+
 MODEL_SOURCE = os.getenv(
     "MODEL_SOURCE",
     "packaged",
@@ -393,12 +396,26 @@ app = FastAPI(
 # ============================================================
 # CORS
 # ============================================================
+#
+# Local frontend:
+#     http://localhost:5173
+#
+# Local alternate:
+#     http://127.0.0.1:5173
+#
+# Production frontend:
+#     https://self-healing-ml-system-end-to-end-m.vercel.app
+#
+# The production origin is required so that the browser can
+# call the AWS API Gateway -> FastAPI prediction endpoint.
+#
 
 app.add_middleware(
     CORSMiddleware,
     allow_origins=[
         "http://localhost:5173",
         "http://127.0.0.1:5173",
+        "https://self-healing-ml-system-end-to-end-m.vercel.app",
     ],
     allow_credentials=True,
     allow_methods=["*"],
