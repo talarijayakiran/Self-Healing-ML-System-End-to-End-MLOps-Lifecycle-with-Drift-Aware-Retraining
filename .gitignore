@@ -8,5 +8,5 @@ data/monitoring/
 .DS_Store
 .idea/
 .vscode/mlflow.db
-
+*.pem
 mlflow.db
