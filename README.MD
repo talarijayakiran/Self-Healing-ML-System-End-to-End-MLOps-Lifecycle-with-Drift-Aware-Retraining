@@ -2,8 +2,11 @@
 
 ### Drift-Aware • Auto-Retraining • Production MLOps • AWS • CI/CD • Live ML Inference
 
-> An end-to-end machine learning system that closes the loop between model training, production inference, monitoring, drift detection, retraining, model promotion, and cloud deployment.
+> **An end-to-end MLOps platform that closes the loop between model development, production inference, monitoring, drift detection, retraining, evaluation, model promotion, and cloud deployment.**
 
+[![🚀 Live Application](https://img.shields.io/badge/🚀%20Live%20Application-Open%20App-black?style=for-the-badge)](https://self-healing-ml-system-end-to-end-m.vercel.app)
+[![▶ Watch 60-Second Demo](https://img.shields.io/badge/▶%20Watch%2060--Second%20Demo-f43f5e?style=for-the-badge)](https://drive.google.com/file/d/1ktxPcUzhlSFS8kfTfxHkJgPaY6qI59zy/view?usp=drive_link)
+[![Source Code](https://img.shields.io/badge/Source%20Code-GitHub-181717?style=for-the-badge&logo=github)](https://github.com/talarijayakiran/Self-Healing-ML-System-End-to-End-MLOps-Lifecycle-with-Drift-Aware-Retraining)
 [![CI](https://github.com/talarijayakiran/Self-Healing-ML-System-End-to-End-MLOps-Lifecycle-with-Drift-Aware-Retraining/actions/workflows/ci.yml/badge.svg)](https://github.com/talarijayakiran/Self-Healing-ML-System-End-to-End-MLOps-Lifecycle-with-Drift-Aware-Retraining/actions/workflows/ci.yml)
 [![CD](https://github.com/talarijayakiran/Self-Healing-ML-System-End-to-End-MLOps-Lifecycle-with-Drift-Aware-Retraining/actions/workflows/cd.yml/badge.svg)](https://github.com/talarijayakiran/Self-Healing-ML-System-End-to-End-MLOps-Lifecycle-with-Drift-Aware-Retraining/actions/workflows/cd.yml)
 
@@ -16,56 +19,76 @@
 **Production path:**
 
 ```text
-Browser → Vercel → AWS API Gateway → AWS EC2 → Docker → FastAPI → Production ML Model
+Browser
+   ↓
+Vercel
+   ↓ HTTPS
+AWS API Gateway
+   ↓
+AWS EC2
+   ↓
+Docker
+   ↓
+FastAPI
+   ↓
+Production ML Model
 ```
 
 **AWS region:** `ap-south-2`
 
-The developer workstation is not part of the production runtime path. Once the Vercel and AWS infrastructure is running, users can access the application from other machines without the developer PC running the application locally.
+The developer workstation is not part of the production runtime path.
+
+---
+
+## 🎥 60-Second Product Demo
+
+[![▶ Watch 60-Second Demo](https://img.shields.io/badge/%E2%96%B6%20Watch%2060--Second%20Demo-f43f5e?style=for-the-badge)](https://drive.google.com/file/d/1ktxPcUzhlSFS8kfTfxHkJgPaY6qI59zy/view?usp=drive_link)
+
+> A one-minute walkthrough of the deployed ML system covering live inference, production model serving, health/readiness, monitoring, and the operational MLOps workflow.
 
 ---
 
 # 1. Why This Project Exists
 
-Most ML projects stop here:
+Most ML projects stop at:
 
 ```text
 Dataset → Train → Evaluate → Deploy
 ```
 
-That is not enough for a production ML system.
-
-Production data changes. Features drift. Models can become stale. Deployments can fail. A model can perform well during development and become less reliable after deployment.
-
-This project treats ML as a continuous operational lifecycle:
+Production ML requires a longer lifecycle:
 
 ```text
 Build
- ↓
+  ↓
 Validate
- ↓
+  ↓
 Register
- ↓
+  ↓
 Promote
- ↓
+  ↓
 Deploy
- ↓
+  ↓
 Serve
- ↓
+  ↓
 Observe
- ↓
+  ↓
 Detect Drift
- ↓
+  ↓
 Retrain
- ↓
+  ↓
 Evaluate
- ↓
+  ↓
+Quality Gate
+  ↓
 Promote
- ↓
+  ↓
 Deploy
- ↓
+  ↓
 Repeat
 ```
+
+Production data changes. Features can drift. Models become stale. Deployments can fail. A newer model can also perform worse than the current production model.
 
 > **The goal is not merely to train a model. The goal is to operate the model as a production system.**
 
@@ -73,29 +96,45 @@ Repeat
 
 # 2. What I Built
 
-This repository combines:
+## Machine Learning
 
-- Machine learning model development
-- Deterministic production feature engineering
+- Demand-forecasting model
+- Feature engineering
+- Deterministic inference feature construction
+- Model evaluation
+- Production inference
+
+## MLOps
+
 - MLflow model lifecycle management
-- Drift-aware retraining
-- Model evaluation and quality gates
-- FastAPI inference serving
-- Dockerized production runtime
+- Model versioning and promotion
+- Drift-aware retraining workflow
+- Evaluation and quality gates
+- Production model serving
+- Prediction logging
+
+## Backend
+
+- FastAPI inference service
+- Pydantic request validation
+- Health and readiness endpoints
+- REST API
 - Prometheus metrics
-- Health and readiness checks
+
+## DevOps / Cloud
+
+- Dockerized runtime
 - GitHub Actions CI/CD
 - Amazon ECR
 - AWS EC2
 - AWS API Gateway
-- React/Vite frontend
-- Vercel production deployment
+- Vercel deployment
 
-The result is a live cloud-deployed ML application rather than only a training notebook.
+The result is a **live cloud-deployed ML application with a continuous MLOps lifecycle**, rather than only a training notebook.
 
 ---
 
-# 3. High-Level Architecture
+# 3. System Architecture
 
 ```text
                                   INTERNET
@@ -118,7 +157,7 @@ The result is a live cloud-deployed ML application rather than only a training n
                            │   AWS API GATEWAY   │
                            │      HTTP API       │
                            └──────────┬──────────┘
-                                      │ HTTP
+                                      │
                                       ▼
                   ┌────────────────────────────────────┐
                   │             AWS EC2                │
@@ -140,9 +179,9 @@ The result is a live cloud-deployed ML application rather than only a training n
                   │       │         ▼          │       │
                   │       │ Prometheus Metrics  │       │
                   │       └────────────────────┘       │
-                  └────────────────────────────────────┘
-                                      │
-                                      ▼
+                  └──────────────────┬─────────────────┘
+                                     │
+                                     ▼
                            ┌─────────────────────┐
                            │ Monitoring / Drift  │
                            │ Detection Pipeline  │
@@ -185,17 +224,17 @@ API Gateway
  ↓
 FastAPI
  ↓
-Pydantic validation
+Pydantic Validation
  ↓
-Feature builder
+Canonical Feature Builder
  ↓
-Production model
+Production Model
  ↓
 Prediction
  ↓
-Prediction logging
+Prediction Logging
  ↓
-Metrics
+Prometheus Metrics
  ↓
 Response
 ```
@@ -208,23 +247,22 @@ Production / Monitoring Data
      Drift Detection
           ↓
      Drift Decision
-       /       \
-     NO         YES
-     │           │
-     │           ▼
-     │       Retraining
-     │           ↓
-     │       Evaluation
-     │           ↓
-     │       Quality Gate
-     │           ↓
-     │      Model Promotion
-     │           ↓
-     │       Deployment
-     │           │
-     └───────────┘
-          ↓
- Production Model
+        /      \
+      NO        YES
+      │          │
+      │          ▼
+      │      Retraining
+      │          ↓
+      │      Evaluation
+      │          ↓
+      │      Quality Gate
+      │          ↓
+      │     Model Promotion
+      │          ↓
+      └──── Deployment
+                │
+                ▼
+        Production Model
 ```
 
 ---
@@ -232,28 +270,28 @@ Production / Monitoring Data
 # 5. End-to-End Prediction Flow
 
 ```text
-1. User enters forecasting parameters
-              ↓
-2. React frontend builds API request
-              ↓
-3. HTTPS request reaches AWS API Gateway
-              ↓
-4. API Gateway routes request to EC2
-              ↓
-5. FastAPI validates input
-              ↓
-6. Canonical feature vector is constructed
-              ↓
-7. Production model performs inference
-              ↓
-8. Prediction is logged
-              ↓
-9. Request/prediction latency is recorded
-              ↓
-10. FastAPI returns prediction + model version + request ID
-              ↓
-11. Frontend renders result
+User input
+   ↓
+React frontend
+   ↓
+AWS API Gateway
+   ↓
+FastAPI
+   ↓
+Pydantic validation
+   ↓
+Canonical feature vector
+   ↓
+Production model
+   ↓
+Prediction
+   ↓
+Prediction + model version + request ID
+   ↓
+Frontend
 ```
+
+The inference service is designed around a deterministic feature contract to reduce schema and feature-ordering failures.
 
 ---
 
@@ -265,7 +303,7 @@ Production / Monitoring Data
 POST /api/predict
 ```
 
-### Request
+Example request:
 
 ```json
 {
@@ -277,7 +315,7 @@ POST /api/predict
 }
 ```
 
-### Verified production response
+Example response:
 
 ```json
 {
@@ -323,39 +361,35 @@ If the model is unavailable, readiness returns `503 Service Unavailable`.
 GET /api/metrics
 ```
 
-Exposes request and prediction telemetry through Prometheus.
+Exposes request and prediction telemetry for Prometheus.
 
 ---
 
 # 7. Deterministic Inference Contract
 
-The inference service derives canonical feature ordering from:
+The production feature builder derives canonical feature ordering from the processed inference schema:
 
 ```text
 data/processed/processed_inference.csv
 ```
 
-The feature builder constructs the inference vector using that schema.
-
-This protects against:
+This helps protect against:
 
 - column-order mismatch
-- missing feature columns
+- missing features
 - inconsistent categorical encoding
-- accidental inference schema changes
+- accidental inference-schema changes
 
-The inference schema is therefore treated as a production contract.
+The inference schema is treated as a **production contract** rather than an incidental implementation detail.
 
 ---
 
-# 8. Model Lifecycle
-
-The project uses MLflow for model lifecycle management:
+# 8. Model Lifecycle with MLflow
 
 ```text
 Candidate Model
       ↓
-Model Evaluation
+Evaluation
       ↓
 Quality Gate
       ↓
@@ -363,20 +397,22 @@ Eligible Model
       ↓
 Production Promotion
       ↓
-Production Alias / Version
+Production Version / Alias
       ↓
 Inference Service
 ```
 
-The serving layer does not select an arbitrary "latest" model.
+The lifecycle separates:
+
+**training → evaluation → promotion → serving**
+
+so model freshness is not treated as proof of model quality.
 
 ---
 
-# 9. Serving Strategy
+# 9. Model Serving Strategy
 
-The FastAPI service supports two model sources.
-
-### Packaged model
+## Packaged model
 
 ```text
 MLflow Model Artifact
@@ -390,9 +426,9 @@ FastAPI
 Inference
 ```
 
-This provides an immutable deployment artifact and avoids development-machine filesystem dependencies.
+This allows the production runtime to carry the required model artifact instead of depending on a development workstation path.
 
-### MLflow registry mode
+## Registry-based strategy
 
 ```text
 MLflow Registry
@@ -406,7 +442,7 @@ FastAPI
 Inference
 ```
 
-The deployed configuration currently uses the packaged model strategy because the local MLflow artifact environment contains development filesystem paths that are not suitable for the Linux production container.
+The deployment currently favors the packaged-model approach where the development registry artifact contains filesystem dependencies unsuitable for the Linux production container.
 
 ---
 
@@ -441,17 +477,17 @@ Drift detected?
 New Production Model
 ```
 
-The safety boundary is:
+The key safety boundary is:
 
 ```text
 Train → Evaluate → Quality Gate → Promote → Deploy
 ```
 
-A newly trained model should not become production merely because it is newer.
+A model is not promoted simply because it is newer.
 
 ---
 
-# 11. CI/CD Architecture
+# 11. CI/CD
 
 ```text
 Developer
@@ -463,64 +499,41 @@ Git Push / Pull Request
 GitHub
    │
    ▼
-┌─────────────────────┐
-│ CI — GitHub Actions │
-│                     │
-│ Install dependencies│
-│ Run pytest          │
-└──────────┬──────────┘
-           │
-        PASS?
-       /     \
-     NO       YES
-     │         │
-     │         ▼
-     │   Build Docker Image
-     │         │
-     │         ▼
-     │   Amazon ECR
-     │         │
-     │         ▼
-     │       EC2
-     │         │
-     │         ▼
-     │   Restart Container
-     │         │
-     │         ▼
-     │    Health Check
-     │         │
-     │         ▼
-     │   Deployment Success
-     │
-     └── Stop
+GitHub Actions
+   │
+   ├──── CI → install + tests
+   │
+   └──── CD → build image
+                 ↓
+              Amazon ECR
+                 ↓
+                EC2
+                 ↓
+          container deployment
+                 ↓
+          health verification
 ```
 
-### CI
+## CI
 
-The CI workflow validates the application with automated tests. The test environment uses:
+- Dependency installation
+- Automated tests
+- Production-independent test mode where required
 
-```text
-TEST_MODE=true
-```
+## CD
 
-so tests do not depend on production model initialization.
-
-### CD
-
-The deployment pipeline:
-
-1. Checks out the repository.
-2. Configures AWS credentials.
-3. Authenticates with Amazon ECR.
-4. Builds the Docker image.
-5. Tags the image using the Git commit SHA.
-6. Pushes the image to ECR.
-7. Connects to EC2.
-8. Pulls the new image.
-9. Replaces the running container.
-10. Starts the new container.
-11. Waits for startup.
-12. Performs health verification.
+1. Checkout repository
+2. Configure AWS credentials
+3. Authenticate with ECR
+4. Build Docker image
+5. Tag image with Git commit SHA
+6. Push image to ECR
+7. Connect to EC2
+8. Pull new image
+9. Replace running container
+10. Start container
+11. Wait for startup
+12. Validate application health
 
 ---
 
@@ -546,137 +559,27 @@ The deployment pipeline:
              │  ML Model     │
              └───────────────┘
 
-CI/CD
-  ▲
-  │
-┌─┴──────────────┐
-│ GitHub Actions │
-└───────┬────────┘
-        │
-        ▼
-┌───────────────┐
-│   Amazon ECR  │
-│ Docker Images │
-└───────┬───────┘
-        │
-        ▼
-       EC2
+
+CI/CD CONTROL PLANE
+
+Developer
+   ↓
+GitHub
+   ↓
+GitHub Actions
+   ↓
+Amazon ECR
+   ↓
+AWS EC2
+   ↓
+Health Verification
 ```
 
----
-
-# 13. Production Evidence
-
-This section intentionally separates **verified evidence** from metrics that still require measured experiment artifacts.
-
-| Evidence | Verified result |
-|---|---|
-| Frontend | Live on Vercel |
-| API Gateway | Live |
-| `/health` | HTTP 200 |
-| `/ready` | HTTP 200 |
-| `/predict` | HTTP 200 |
-| Model loaded | `true` |
-| Production model version | `7` |
-| Browser CORS preflight | HTTP 200 |
-| Cross-machine frontend access | Verified |
-| Backend runtime | FastAPI on AWS EC2 |
-| Container runtime | Docker |
-| Registry | Amazon ECR |
-| CI | GitHub Actions |
-| CD | GitHub Actions |
-
-### Important
-
-Do **not** publish invented latency, accuracy, drift, cost, or business-impact numbers.
-
-A real number backed by an experiment is valuable. A fabricated number damages credibility.
+**AWS region:** `ap-south-2`
 
 ---
 
-# 14. Model Evaluation Results
-
-The system contains model evaluation and quality-gate components. Numerical metrics should be published only when backed by reproducible artifacts.
-
-| Metric | Value | Evidence |
-|---|---:|---|
-| Production model version | `7` | Production API |
-| RMSE | `TBD — measured artifact required` | Evaluation output |
-| MAE | `TBD — measured artifact required` | Evaluation output |
-| R² | `TBD — measured artifact required` | Evaluation output |
-| Validation samples | `TBD` | Evaluation artifact |
-
-This is deliberately conservative. The README should never manufacture model-quality numbers.
-
----
-
-# 15. Drift / Retraining Evidence
-
-The intended closed loop is:
-
-```text
-Production Data
-      ↓
-Drift Detection
-      ↓
-Drift Threshold
-      ↓
-Retraining Trigger
-      ↓
-Candidate Model
-      ↓
-Evaluation
-      ↓
-Quality Gate
-      ↓
-Promotion
-```
-
-Recommended evidence artifacts:
-
-```text
-docs/
-├── screenshots/
-│   ├── production-ui.png
-│   ├── prediction-result.png
-│   ├── github-actions-ci.png
-│   ├── github-actions-cd.png
-│   ├── aws-api-gateway.png
-│   └── mlflow-model-version.png
-│
-└── experiments/
-    ├── model-evaluation.json
-    ├── drift-results.json
-    └── retraining-run.json
-```
-
-Only add files that actually exist and contain evidence from this project.
-
----
-
-# 16. Performance Benchmark
-
-A serious production README should publish measured performance.
-
-Recommended benchmark:
-
-| Metric | Result |
-|---|---:|
-| Requests | `TBD` |
-| Average latency | `TBD ms` |
-| P50 latency | `TBD ms` |
-| P95 latency | `TBD ms` |
-| P99 latency | `TBD ms` |
-| Error rate | `TBD %` |
-| Successful predictions | `TBD` |
-
-The important engineering principle is:
-
-> **Measure first, publish second.**
-
----
-
-# 17. Observability
+# 13. Observability
 
 The inference service exposes:
 
@@ -686,7 +589,7 @@ The inference service exposes:
 http_requests_total
 ```
 
-with:
+with request metadata such as:
 
 - method
 - endpoint
@@ -701,20 +604,18 @@ prediction_latency_seconds
 
 ### Prediction metadata
 
-Predictions can be associated with:
+Prediction records can be associated with:
 
 - request ID
 - model version
-- date
-- category
-- region
-- price
-- promotion flag
+- input metadata
 - prediction
+
+This creates an operational path from request → model version → response.
 
 ---
 
-# 18. Reliability Design
+# 14. Reliability Design
 
 ### Health vs readiness
 
@@ -725,41 +626,137 @@ Is the application alive?
 
 /ready
    ↓
-Is the model available and ready?
+Can the application currently serve predictions?
 ```
 
-### Model initialization
+### Failure boundary
 
-The application loads the production model during FastAPI startup.
-
-### Readiness failure
-
-If the model cannot be loaded:
+If the model cannot be loaded, readiness reports:
 
 ```text
-/ready → 503
+503 Service Unavailable
 ```
 
 ### Container recovery
 
-The production container is configured to restart automatically after container failure.
+The deployment is configured for automatic container restart behavior.
 
-### Deployment validation
+### Deployment verification
 
-CI/CD verifies application health after deployment.
+A successful image build is not treated as a successful release. The deployed application is checked after startup.
 
 ---
 
-# 19. Failure Handling
+# 15. Failure Handling
 
 | Failure | Expected behavior |
 |---|---|
-| Invalid request | Pydantic validation error |
+| Invalid request | Validation error |
 | Model unavailable | `503 Service Unavailable` |
 | Prediction failure | `500 Internal Server Error` |
-| Application health | `/health` |
+| Application liveness | `/health` |
 | Model readiness | `/ready` |
 | Deployment failure | CI/CD reports failure |
+
+---
+
+# 16. Production Evidence
+
+The project has been validated as a deployed system rather than only a local build.
+
+| Evidence | Status |
+|---|---|
+| Frontend | ✅ Live on Vercel |
+| AWS API Gateway | ✅ Live |
+| FastAPI backend | ✅ Running on EC2 |
+| Docker runtime | ✅ Running |
+| Production model | ✅ Loaded |
+| `/health` | ✅ Verified |
+| `/ready` | ✅ Verified |
+| `/predict` | ✅ Verified |
+| Cross-machine API access | ✅ Verified |
+| CI workflow | ✅ Configured |
+| CD workflow | ✅ Configured |
+| Amazon ECR | ✅ Configured |
+| Prometheus metrics | ✅ Implemented |
+
+> **Measured accuracy, latency, drift magnitude, and throughput numbers should be added only from reproducible benchmark/evaluation artifacts.**
+
+---
+
+# 17. Model Evaluation
+
+Do not publish invented model metrics.
+
+Recommended evidence table:
+
+| Metric | Result |
+|---|---:|
+| Production model version | `7` |
+| RMSE | `Add measured result` |
+| MAE | `Add measured result` |
+| R² | `Add measured result` |
+| Validation samples | `Add measured result` |
+
+This is deliberate: **credible evidence is more valuable than impressive-looking numbers.**
+
+---
+
+# 18. Drift & Retraining Evidence
+
+```text
+Production Data
+      ↓
+Drift Detection
+      ↓
+Threshold / Decision
+      ↓
+Retraining Trigger
+      ↓
+Candidate Model
+      ↓
+Evaluation
+      ↓
+Quality Gate
+      ↓
+Promotion
+```
+
+For a stronger engineering portfolio, publish real evidence under:
+
+```text
+docs/
+├── experiments/
+│   ├── model-evaluation.json
+│   ├── drift-results.json
+│   └── retraining-run.json
+└── screenshots/
+    ├── production-ui.png
+    ├── github-actions-ci.png
+    ├── github-actions-cd.png
+    ├── aws-api-gateway.png
+    ├── mlflow-model.png
+    └── drift-retraining.png
+```
+
+Only add artifacts that actually exist.
+
+---
+
+# 19. Performance Benchmark
+
+Recommended production benchmark:
+
+| Metric | Result |
+|---|---:|
+| Requests | `Add measured result` |
+| Average latency | `Add measured result` |
+| P50 latency | `Add measured result` |
+| P95 latency | `Add measured result` |
+| P99 latency | `Add measured result` |
+| Error rate | `Add measured result` |
+
+> **Measure first, publish second.**
 
 ---
 
@@ -768,12 +765,12 @@ CI/CD verifies application health after deployment.
 | Layer | Technology |
 |---|---|
 | Language | Python |
-| ML | TensorFlow / ML libraries |
+| ML / DL | TensorFlow + ML ecosystem |
 | Data | Pandas, NumPy |
 | API | FastAPI |
 | Validation | Pydantic |
 | Model lifecycle | MLflow |
-| Container | Docker |
+| Containerization | Docker |
 | CI/CD | GitHub Actions |
 | Registry | Amazon ECR |
 | Compute | AWS EC2 |
@@ -782,7 +779,7 @@ CI/CD verifies application health after deployment.
 | Frontend | React |
 | Frontend build | Vite |
 | Frontend hosting | Vercel |
-| Source control | Git / GitHub |
+| Version control | Git / GitHub |
 
 ---
 
@@ -812,12 +809,19 @@ CI/CD verifies application health after deployment.
 ├── tests/
 ├── requirements.txt
 ├── Dockerfile
-└── README.md
+└── README.MD
 ```
 
 ---
 
 # 22. Local Development
+
+## Prerequisites
+
+- Python
+- Node.js / npm
+- Docker
+- Git
 
 ## Clone
 
@@ -826,7 +830,9 @@ git clone https://github.com/talarijayakiran/Self-Healing-ML-System-End-to-End-M
 cd Self-Healing-ML-System-End-to-End-MLOps-Lifecycle-with-Drift-Aware-Retraining
 ```
 
-## Windows PowerShell
+## Python environment
+
+### Windows PowerShell
 
 ```powershell
 python -m venv .venv
@@ -834,7 +840,7 @@ python -m venv .venv
 pip install -r requirements.txt
 ```
 
-## Run backend
+## Backend
 
 ```powershell
 uvicorn src.serving.app:app --host 0.0.0.0 --port 8000
@@ -852,9 +858,7 @@ Health:
 http://localhost:8000/health
 ```
 
----
-
-# 23. Run Frontend Locally
+## Frontend
 
 ```powershell
 cd frontend
@@ -862,18 +866,20 @@ npm install
 npm run dev
 ```
 
-The Vite development server URL will be displayed by the terminal.
-
 ---
 
-# 24. Docker
+# 23. Docker
 
 ```bash
 docker build -t self-healing-ml-api .
 ```
 
 ```bash
-docker run -d   --name self-healing-ml-api   -p 8000:8000   --restart unless-stopped   self-healing-ml-api
+docker run -d \
+  --name self-healing-ml-api \
+  -p 8000:8000 \
+  --restart unless-stopped \
+  self-healing-ml-api
 ```
 
 Verify:
@@ -884,374 +890,283 @@ curl http://localhost:8000/health
 
 ---
 
-# 25. Screenshots
-
-Store real screenshots under:
-
-```text
-docs/screenshots/
-```
-
-Recommended evidence:
-
-```text
-production-ui.png
-prediction-result.png
-github-actions-ci.png
-github-actions-cd.png
-aws-api-gateway.png
-mlflow-model-version.png
-drift-retraining.png
-```
-
-Then embed them:
-
-```markdown
-![Production application](docs/screenshots/production-ui.png)
-![Prediction result](docs/screenshots/prediction-result.png)
-![CI pipeline](docs/screenshots/github-actions-ci.png)
-![CD pipeline](docs/screenshots/github-actions-cd.png)
-![MLflow model](docs/screenshots/mlflow-model-version.png)
-```
-
-**Do not use generated or fabricated screenshots.**
-
----
-
-# 26. Engineering Trade-offs
+# 24. Engineering Decisions
 
 ### Why FastAPI?
 
-- typed request validation
-- automatic OpenAPI documentation
-- Python-native ML integration
-- simple production inference serving
-
-### Why Docker?
-
-- reproducible runtime
-- dependency isolation
-- consistent deployment artifact
+Python-native inference serving, typed validation, automatic API documentation, and straightforward integration with ML code.
 
 ### Why MLflow?
 
-- model lifecycle management
-- model versioning
-- production model selection
+To make model versioning and lifecycle management explicit instead of treating model files as anonymous artifacts.
 
-### Why EC2?
+### Why Docker?
 
-The project requires direct control over the Docker runtime and deployment environment.
+To package application code, model runtime dependencies, and supporting libraries into a reproducible deployment artifact.
+
+### Why AWS EC2?
+
+To retain direct control over the containerized serving environment.
 
 ### Why API Gateway?
 
-It provides a managed public HTTP entry point between the frontend and EC2 inference service.
+To provide a managed public HTTP entry point between the deployed frontend and inference backend.
 
-### Why Vercel?
+### Why GitHub Actions?
 
-It provides straightforward production hosting for the React/Vite frontend.
+To automate testing, image publishing, deployment, and post-deployment validation.
+
+### Why Prometheus?
+
+To expose standardized request and latency telemetry for operational monitoring.
 
 ---
 
-# 27. Security
+# 25. Cost-Aware Design
 
-Current implementation uses GitHub Actions secrets for sensitive deployment credentials.
+The deployment is intentionally optimized for **portfolio-scale traffic**.
 
-Sensitive credentials should never be committed to the repository.
+Current architecture:
+
+```text
+Vercel
+   ↓
+API Gateway
+   ↓
+Single EC2
+   ↓
+Docker
+   ↓
+FastAPI
+```
+
+This avoids introducing distributed infrastructure before workload requirements justify it.
+
+At higher traffic or availability requirements:
+
+```text
+CDN
+  ↓
+Load Balancer
+  ↓
+Multiple inference replicas
+  ↓
+Autoscaling
+  ↓
+Managed observability
+```
+
+> **Infrastructure should be introduced because measured workload and reliability requirements demand it—not because a more complex diagram looks impressive.**
+
+---
+
+# 26. Security Considerations
+
+Sensitive credentials should never be committed to Git.
 
 Production hardening opportunities:
 
 - IAM least privilege
 - AWS Secrets Manager / Parameter Store
-- private EC2 networking
-- restricted security groups
-- API authentication/authorization
-- rate limiting
-- centralized logging
-- stronger network isolation
-- custom production domain
+- Private EC2 networking
+- Restricted security groups
+- Authentication and authorization
+- API rate limiting
+- Centralized logging
+- Network isolation
+- Secret rotation
+- HTTPS/TLS enforcement
 
 ---
 
-# 28. What This Project Demonstrates
+# 27. Scaling Strategy
 
-### Machine Learning
+### Current
 
-- model training
-- feature engineering
-- evaluation
-- inference
-- model versioning
+```text
+Vercel
+   ↓
+API Gateway
+   ↓
+EC2
+   ↓
+Docker
+   ↓
+FastAPI
+   ↓
+Production Model
+```
 
-### MLOps
+### Future
 
-- model lifecycle management
-- drift-aware workflows
-- retraining
-- quality gates
-- promotion
-- production serving
+```text
+Vercel / CDN
+      ↓
+Load Balancer
+      ↓
+Autoscaling inference replicas
+      ↓
+Queue / cache where required
+      ↓
+Managed model / data infrastructure
+```
 
-### Backend Engineering
+Potential future additions:
 
-- Python
+- ECS / EKS
+- blue-green deployment
+- canary releases
+- automated rollback
+- Infrastructure as Code
+- multi-AZ deployment
+- distributed tracing
+- isolated model serving
+
+---
+
+# 28. Scope & Limitations
+
+This is a **portfolio-scale, production-oriented MLOps system**, not a claim of hyperscale production traffic.
+
+Current limitations include:
+
+- single primary EC2 inference host
+- no multi-region deployment
+- no horizontal inference autoscaling
+- limited enterprise identity integration
+- no formal blue-green/canary rollout
+- no multi-region disaster recovery
+- no full distributed tracing platform
+
+Documenting these boundaries is intentional. Production maturity includes knowing what the system does **and does not** guarantee.
+
+---
+
+# 29. What This Project Demonstrates
+
+## Machine Learning
+
+- Feature engineering
+- Model training
+- Evaluation
+- Inference
+- Model versioning
+
+## MLOps
+
+- Model lifecycle management
+- Drift detection
+- Retraining workflow
+- Quality gates
+- Model promotion
+- Production serving
+
+## Backend Engineering
+
 - FastAPI
-- REST APIs
+- REST API
 - Pydantic
-- health/readiness
-- error handling
+- Health checks
+- Readiness checks
+- Error handling
 
-### DevOps
+## DevOps
 
 - Docker
 - Git
 - GitHub Actions
 - CI/CD
-- container registry
-- automated deployment
+- Amazon ECR
+- Automated EC2 deployment
 
-### Cloud
+## Cloud
 
 - AWS EC2
 - AWS API Gateway
 - Amazon ECR
-- production networking
+- Vercel
 
-### Observability
+## Observability
 
 - Prometheus
-- request metrics
-- latency metrics
-- prediction logging
-- model version tracking
-
-### Frontend
-
-- React
-- Vite
-- API integration
-- production deployment
+- Request metrics
+- Latency metrics
+- Prediction logging
+- Model-version tracking
 
 ---
 
-# 29. Recruiter Skill Matrix
-
-| Requirement | Evidence |
-|---|---|
-| Python | ML + FastAPI |
-| Machine Learning | Demand forecasting |
-| Feature engineering | Canonical inference builder |
-| MLflow | Model lifecycle/versioning |
-| MLOps | Drift → retraining → evaluation → promotion |
-| FastAPI | Production inference API |
-| Docker | Containerized serving |
-| GitHub Actions | CI/CD |
-| AWS EC2 | Production compute |
-| API Gateway | Public API layer |
-| ECR | Container registry |
-| Prometheus | Metrics |
-| React | Production frontend |
-| Vite | Frontend build |
-| Git/GitHub | Version control |
-| REST APIs | Prediction interface |
-| Cloud deployment | Live application |
-| Production debugging | API/frontend integration |
-
----
-
-# 30. Limitations
-
-This is a production-oriented portfolio system, not a hyperscale enterprise platform.
-
-Current limitations:
-
-- single primary EC2 inference host
-- no multi-region deployment
-- no horizontal autoscaling
-- no Kubernetes orchestration
-- no enterprise identity provider
-- no advanced authentication layer
-- no formal blue/green deployment
-- no distributed tracing platform
-- limited infrastructure-as-code coverage
-
-These boundaries are documented intentionally rather than hidden.
-
----
-
-# 31. Future Production Evolution
-
-```text
-CURRENT
-  │
-  ├── Vercel
-  ├── API Gateway
-  ├── EC2
-  ├── Docker
-  └── ECR
-        │
-        ▼
-FUTURE
-  │
-  ├── ECS / EKS
-  ├── Auto Scaling
-  ├── Load Balancer
-  ├── Private Networking
-  ├── Secrets Manager
-  ├── Centralized Logging
-  ├── Distributed Tracing
-  ├── Terraform
-  ├── Blue/Green Deployment
-  ├── Canary Releases
-  ├── Automated Rollback
-  └── Multi-AZ / Multi-Region
-```
-
----
-
-# 32. Why This Project Matters
+# 30. Why This Project Matters
 
 A production ML system must answer:
 
 ```text
-Can I serve it?
+Can I serve the model?
 Can I monitor it?
 Can I detect drift?
 Can I retrain it?
-Can I validate the replacement?
+Can I evaluate the replacement?
 Can I promote it safely?
 Can I deploy it automatically?
 Can I recover when something fails?
-Can I prove which model served a prediction?
+Can I identify which model served a prediction?
 ```
 
-This project is built around those questions.
+This project is structured around those questions.
 
-> **The model is only one component. The production system around the model is the engineering problem.**
-
----
-
-# 33. Production Status
-
-| Component | Status |
-|---|---|
-| ML model | ✅ |
-| Feature engineering | ✅ |
-| MLflow lifecycle | ✅ |
-| Drift/retraining workflow | ✅ |
-| FastAPI inference | ✅ |
-| Health endpoint | ✅ |
-| Readiness endpoint | ✅ |
-| Prometheus metrics | ✅ |
-| Docker | ✅ |
-| CI | ✅ |
-| CD | ✅ |
-| Amazon ECR | ✅ |
-| AWS EC2 | ✅ |
-| AWS API Gateway | ✅ |
-| React frontend | ✅ |
-| Vercel deployment | ✅ |
-| Cross-machine access | ✅ |
-| Live prediction | ✅ |
+> **A model that is trained but cannot be safely operated, monitored, evaluated, and improved is not a complete ML system.**
 
 ---
 
-# 34. Final Architecture
+# 31. Recruiter Review Path
+
+A recruiter or hiring manager can evaluate the project in this order:
 
 ```text
-                             ┌─────────────────────┐
-                             │        USER         │
-                             └──────────┬──────────┘
-                                        │
-                                        ▼
-                             ┌─────────────────────┐
-                             │       VERCEL        │
-                             │   React + Vite      │
-                             └──────────┬──────────┘
-                                        │ HTTPS
-                                        ▼
-                             ┌─────────────────────┐
-                             │   AWS API GATEWAY   │
-                             │      HTTP API       │
-                             └──────────┬──────────┘
-                                        │
-                                        ▼
-                 ┌────────────────────────────────────────┐
-                 │                 AWS EC2                 │
-                 │                                        │
-                 │             Docker Container           │
-                 │                                        │
-                 │   FastAPI                              │
-                 │      │                                 │
-                 │      ├── Validation                    │
-                 │      ├── Feature Builder               │
-                 │      ├── Production Model              │
-                 │      ├── Prediction Logger              │
-                 │      └── Prometheus Metrics             │
-                 └──────────────────┬─────────────────────┘
-                                    │
-                                    ▼
-                         ┌─────────────────────┐
-                         │ Monitoring / Drift  │
-                         └──────────┬──────────┘
-                                    │
-                                    ▼
-                         ┌─────────────────────┐
-                         │    Retraining      │
-                         └──────────┬──────────┘
-                                    │
-                                    ▼
-                         ┌─────────────────────┐
-                         │ Evaluation / Gate   │
-                         └──────────┬──────────┘
-                                    │
-                                    ▼
-                         ┌─────────────────────┐
-                         │ MLflow / Promotion │
-                         └──────────┬──────────┘
-                                    │
-                                    ▼
-                              New Model
-                                    │
-                                    └──► Production
-
-
-CI/CD CONTROL PLANE
-
-Developer
-   ↓
-GitHub
-   ↓
-GitHub Actions
-   ├── CI → Tests
-   └── CD → Docker Build
-              ↓
-           Amazon ECR
-              ↓
-           AWS EC2
-              ↓
-        Health Verification
+🚀 Live Application
+        ↓
+▶ 60-Second Demo
+        ↓
+🏗️ Architecture
+        ↓
+🔁 MLOps Lifecycle
+        ↓
+⚙️ CI/CD
+        ↓
+☁️ AWS Deployment
+        ↓
+📊 Observability
+        ↓
+🧠 Model Lifecycle
+        ↓
+🔍 Source Code
 ```
+
+This is intentionally designed to make the **engineering evidence discoverable quickly**.
 
 ---
 
-# 35. Author
+# 👤 Author
 
-## Talari Jayakiran
+**Talari Jayakiran**
 
 **AI Engineer | MLOps Engineer | Machine Learning Engineer**
 
-Focus:
+Focus areas:
 
 - Production ML systems
 - MLOps
-- AI Engineering
 - Cloud deployment
 - ML inference systems
+- AI engineering
 - Generative AI / LLMOps
+
+- GitHub: https://github.com/talarijayakiran
+- Project: https://github.com/talarijayakiran/Self-Healing-ML-System-End-to-End-MLOps-Lifecycle-with-Drift-Aware-Retraining
+- Live Application: https://self-healing-ml-system-end-to-end-m.vercel.app
 
 ---
 
-## Final Principle
+## ⭐ Final Principle
 
-> **If a model cannot be validated, deployed, monitored, recovered, and continuously improved, the ML lifecycle is incomplete.**
+> **ML engineering does not end when the model reaches production. The real system begins there.**
