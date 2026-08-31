@@ -1118,32 +1118,6 @@ This project is structured around those questions.
 
 ---
 
-# 31. Recruiter Review Path
-
-A recruiter or hiring manager can evaluate the project in this order:
-
-```text
-🚀 Live Application
-        ↓
-▶ 60-Second Demo
-        ↓
-🏗️ Architecture
-        ↓
-🔁 MLOps Lifecycle
-        ↓
-⚙️ CI/CD
-        ↓
-☁️ AWS Deployment
-        ↓
-📊 Observability
-        ↓
-🧠 Model Lifecycle
-        ↓
-🔍 Source Code
-```
-
-This is intentionally designed to make the **engineering evidence discoverable quickly**.
-
 ---
 
 # 👤 Author
