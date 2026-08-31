@@ -4,9 +4,9 @@
 
 > **An end-to-end MLOps platform that closes the loop between model development, production inference, monitoring, drift detection, retraining, evaluation, model promotion, and cloud deployment.**
 
-[![🚀 Live Application](https://img.shields.io/badge/🚀%20Live%20Application-Open%20App-black?style=for-the-badge)](https://self-healing-ml-system-end-to-end-m.vercel.app)
-[![▶ Watch 60-Second Demo](https://img.shields.io/badge/▶%20Watch%2060--Second%20Demo-f43f5e?style=for-the-badge)](https://drive.google.com/file/d/1ktxPcUzhlSFS8kfTfxHkJgPaY6qI59zy/view?usp=drive_link)
-[![Source Code](https://img.shields.io/badge/Source%20Code-GitHub-181717?style=for-the-badge&logo=github)](https://github.com/talarijayakiran/Self-Healing-ML-System-End-to-End-MLOps-Lifecycle-with-Drift-Aware-Retraining)
+[![🚀 Live Application](https://img.shields.io/badge/🚀%20LIVE%20APPLICATION-OPEN%20APP-111827?style=for-the-badge&labelColor=0f172a)](https://self-healing-ml-system-end-to-end-m.vercel.app)
+[![▶ Demo](https://img.shields.io/badge/▶%20WATCH%20DEMO-60%20SECONDS-7c3aed?style=for-the-badge&labelColor=4c1d95)](https://drive.google.com/file/d/1ktxPcUzhlSFS8kfTfxHkJgPaY6qI59zy/view?usp=drive_link)
+[![GitHub](https://img.shields.io/badge/VIEW%20SOURCE-GITHUB-24292f?style=for-the-badge&logo=github&logoColor=white)](https://github.com/talarijayakiran/Self-Healing-ML-System-End-to-End-MLOps-Lifecycle-with-Drift-Aware-Retraining)
 [![CI](https://github.com/talarijayakiran/Self-Healing-ML-System-End-to-End-MLOps-Lifecycle-with-Drift-Aware-Retraining/actions/workflows/ci.yml/badge.svg)](https://github.com/talarijayakiran/Self-Healing-ML-System-End-to-End-MLOps-Lifecycle-with-Drift-Aware-Retraining/actions/workflows/ci.yml)
 [![CD](https://github.com/talarijayakiran/Self-Healing-ML-System-End-to-End-MLOps-Lifecycle-with-Drift-Aware-Retraining/actions/workflows/cd.yml/badge.svg)](https://github.com/talarijayakiran/Self-Healing-ML-System-End-to-End-MLOps-Lifecycle-with-Drift-Aware-Retraining/actions/workflows/cd.yml)
 
